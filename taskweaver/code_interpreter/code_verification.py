@@ -61,9 +61,6 @@ class FunctionCallValidator(ast.NodeVisitor):
         return True
 
     def visit_Call(self, node):
-        if self.allowed_functions is None and self.blocked_functions is None:
-            return
-
         function_name = None
         if isinstance(node.func, ast.Name):
             function_name = node.func.id
@@ -92,13 +89,15 @@ class FunctionCallValidator(ast.NodeVisitor):
             self.generic_visit(node)
             return
 
-        if function_name and not self._is_allowed_function_call(function_name):
-            self.errors.append(
-                f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
-                f"=> Function '{function_name}' is not allowed.",
-            )
+        # Check against allowed/blocked function lists if configured
+        if self.allowed_functions is not None or self.blocked_functions is not None:
+            if function_name and not self._is_allowed_function_call(function_name):
+                self.errors.append(
+                    f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
+                    f"=> Function '{function_name}' is not allowed.",
+                )
 
-        # Check for dynamic attribute access functions that can bypass security
+        # Always check for dynamic attribute access functions that can bypass security
         if function_name in DANGEROUS_BUILTINS:
             self.errors.append(
                 f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
@@ -119,35 +118,33 @@ class FunctionCallValidator(ast.NodeVisitor):
         return True
 
     def visit_Import(self, node):
-        if self.allowed_modules is None and self.blocked_modules is None:
-            return
+        if self.allowed_modules is not None or self.blocked_modules is not None:
+            for alias in node.names:
+                if "." in alias.name:
+                    module_name = alias.name.split(".")[0]
+                else:
+                    module_name = alias.name
 
-        for alias in node.names:
-            if "." in alias.name:
-                module_name = alias.name.split(".")[0]
-            else:
-                module_name = alias.name
-
-            if not self._is_allowed_module_import(module_name):
-                self.errors.append(
-                    f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
-                    f"=> Importing module '{module_name}' is not allowed. ",
-                )
+                if not self._is_allowed_module_import(module_name):
+                    self.errors.append(
+                        f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
+                        f"=> Importing module '{module_name}' is not allowed. ",
+                    )
+        self.generic_visit(node)
 
     def visit_ImportFrom(self, node):
-        if self.allowed_modules is None and self.blocked_modules is None:
-            return
+        if self.allowed_modules is not None or self.blocked_modules is not None:
+            if node.module and "." in node.module:
+                module_name = node.module.split(".")[0]
+            else:
+                module_name = node.module
 
-        if "." in node.module:
-            module_name = node.module.split(".")[0]
-        else:
-            module_name = node.module
-
-        if not self._is_allowed_module_import(module_name):
-            self.errors.append(
-                f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
-                f"=>  Importing from module '{node.module}' is not allowed.",
-            )
+            if module_name and not self._is_allowed_module_import(module_name):
+                self.errors.append(
+                    f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
+                    f"=>  Importing from module '{node.module}' is not allowed.",
+                )
+        self.generic_visit(node)
 
     def _is_allowed_variable(self, var_name: str) -> bool:
         if self.allowed_variables is not None:
@@ -157,23 +154,22 @@ class FunctionCallValidator(ast.NodeVisitor):
         return True
 
     def visit_Assign(self, node: ast.Assign):
-        if self.allowed_variables is None:
-            return
-
-        for target in node.targets:
-            variable_names = []
-            if isinstance(target, ast.Name):
-                variable_names.append(target.id)
-            else:
-                for name in ast.walk(target):
-                    if isinstance(name, ast.Name):
-                        variable_names.append(name.id)
-            for variable_name in variable_names:
-                if not self._is_allowed_variable(variable_name):
-                    self.errors.append(
-                        f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
-                        f"=> Assigning to {variable_name} is not allowed.",
-                    )
+        if self.allowed_variables is not None:
+            for target in node.targets:
+                variable_names = []
+                if isinstance(target, ast.Name):
+                    variable_names.append(target.id)
+                else:
+                    for name in ast.walk(target):
+                        if isinstance(name, ast.Name):
+                            variable_names.append(name.id)
+                for variable_name in variable_names:
+                    if not self._is_allowed_variable(variable_name):
+                        self.errors.append(
+                            f"Error on line {node.lineno}: {self.lines[node.lineno - 1]} "
+                            f"=> Assigning to {variable_name} is not allowed.",
+                        )
+        self.generic_visit(node)
 
     def visit_Subscript(self, node: ast.Subscript):
         """Check for dictionary-based attribute access that could bypass security.
