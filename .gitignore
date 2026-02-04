@@ -187,6 +187,10 @@ test_workspace
 # extensions template
 taskweaver/cli/taskweaver-project.zip
 
+# Frontend build artifacts
+taskweaver/web/static/
+taskweaver/web/frontend/node_modules/
+
 # General
 .DS_Store
 .AppleDouble

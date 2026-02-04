@@ -23,6 +23,7 @@ from taskweaver.ces.server.models import (
     LoadPluginRequest,
     LoadPluginResponse,
     SessionInfoResponse,
+    SessionListResponse,
     StopSessionResponse,
     UpdateVariablesRequest,
     UpdateVariablesResponse,
@@ -102,6 +103,31 @@ async def health_check(
 # =============================================================================
 
 
+@router.get(
+    "/sessions",
+    response_model=SessionListResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def list_sessions(
+    session_manager: ServerSessionManager = Depends(get_session_manager),
+) -> SessionListResponse:
+    """List all active sessions."""
+    sessions = []
+    for session_id, session in session_manager._sessions.items():
+        sessions.append(
+            SessionInfoResponse(
+                session_id=session.session_id,
+                status="running",
+                created_at=session.created_at,
+                last_activity=session.last_activity,
+                loaded_plugins=session.loaded_plugins,
+                execution_count=session.execution_count,
+                cwd=session.cwd,
+            ),
+        )
+    return SessionListResponse(sessions=sessions, total_count=len(sessions))
+
+
 @router.post(
     "/sessions",
     response_model=CreateSessionResponse,
@@ -113,15 +139,19 @@ async def create_session(
     session_manager: ServerSessionManager = Depends(get_session_manager),
 ) -> CreateSessionResponse:
     """Create a new execution session."""
-    if session_manager.session_exists(request.session_id):
+    from taskweaver.utils import create_id
+
+    session_id: str = request.session_id if request.session_id else f"session-{create_id()}"
+
+    if session_manager.session_exists(session_id):
         raise HTTPException(
             status_code=409,
-            detail=f"Session {request.session_id} already exists",
+            detail=f"Session {session_id} already exists",
         )
 
     try:
         session = session_manager.create_session(
-            session_id=request.session_id,
+            session_id=session_id,
             cwd=request.cwd,
         )
         return CreateSessionResponse(
@@ -130,7 +160,7 @@ async def create_session(
             cwd=session.cwd,
         )
     except Exception as e:
-        logger.error(f"Failed to create session {request.session_id}: {e}")
+        logger.error(f"Failed to create session {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -321,6 +351,7 @@ async def _execute_streaming(
                 file_content=art.file_content if art.file_content else None,
                 file_content_encoding=art.file_content_encoding if art.file_content else None,
                 preview=art.preview,
+                download_url=None,
             )
             # Set download URL for artifacts with file_name
             if art.file_name:

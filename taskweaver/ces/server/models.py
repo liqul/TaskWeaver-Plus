@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 class CreateSessionRequest(BaseModel):
     """Request to create a new execution session."""
 
-    session_id: str = Field(..., description="Unique session identifier")
+    session_id: Optional[str] = Field(None, description="Unique session identifier (auto-generated if not provided)")
     cwd: Optional[str] = Field(None, description="Working directory for code execution")
 
 
@@ -85,6 +85,13 @@ class SessionInfoResponse(BaseModel):
     loaded_plugins: List[str] = Field(default_factory=list, description="Loaded plugin names")
     execution_count: int = Field(0, description="Number of executions")
     cwd: str = Field(..., description="Working directory")
+
+
+class SessionListResponse(BaseModel):
+    """Response containing list of all sessions."""
+
+    sessions: List[SessionInfoResponse] = Field(default_factory=list, description="List of sessions")
+    total_count: int = Field(0, description="Total number of sessions")
 
 
 class LoadPluginResponse(BaseModel):
@@ -192,6 +199,7 @@ def artifact_from_execution(artifact: Any) -> ArtifactModel:
         file_content=artifact.file_content if artifact.file_content else None,
         file_content_encoding=artifact.file_content_encoding if artifact.file_content else None,
         preview=artifact.preview,
+        download_url=None,
     )
 
 

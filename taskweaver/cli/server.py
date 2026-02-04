@@ -87,6 +87,7 @@ def server(
     os.environ["TASKWEAVER_SERVER_HOST"] = effective_host
     os.environ["TASKWEAVER_SERVER_PORT"] = str(effective_port)
     os.environ["TASKWEAVER_SERVER_WORK_DIR"] = work_dir
+    os.environ["TASKWEAVER_APP_DIR"] = workspace
     if effective_api_key:
         os.environ["TASKWEAVER_SERVER_API_KEY"] = effective_api_key
 
@@ -98,6 +99,7 @@ def server(
     click.echo(f"  Host:      {effective_host}")
     click.echo(f"  Port:      {effective_port}")
     click.echo(f"  URL:       http://{effective_host}:{effective_port}")
+    click.echo(f"  Web UI:    http://{effective_host}:{effective_port}/")
     click.echo(f"  Health:    http://{effective_host}:{effective_port}/api/v1/health")
     click.echo(f"  Work Dir:  {work_dir}")
     click.echo(f"  API Key:   {'configured' if effective_api_key else 'not required (localhost)'}")

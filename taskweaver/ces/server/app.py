@@ -46,6 +46,7 @@ def create_app(
     work_dir: Optional[str] = None,
     env_id: Optional[str] = None,
     cors_origins: Optional[list[str]] = None,
+    serve_frontend: bool = True,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -85,6 +86,15 @@ def create_app(
 
     # Include API routes
     app.include_router(router)
+
+    # Mount frontend static files (must be last, catches all unmatched routes)
+    if serve_frontend:
+        try:
+            from taskweaver.web import mount_frontend
+
+            mount_frontend(app)
+        except ImportError:
+            logger.debug("Frontend static files not available")
 
     return app
 
