@@ -93,19 +93,6 @@ class Memory:
             compaction = self._compaction_providers[role].get_compaction()
         return rounds, compaction
 
-    def save_experience(self, exp_dir: str, thin_mode: bool = True) -> None:
-        raw_exp_path = os.path.join(exp_dir, f"raw_exp_{self.session_id}.yaml")
-        if thin_mode:
-            import copy
-
-            conversation = copy.deepcopy(self.conversation)
-            for round in conversation.rounds:
-                for post in round.post_list:
-                    post.attachment_list = [x for x in post.attachment_list if x.type == AttachmentType.plan]
-            write_yaml(raw_exp_path, conversation.to_dict())
-        else:
-            write_yaml(raw_exp_path, self.conversation.to_dict())
-
     def get_shared_memory_entries(
         self,
         entry_type: SharedMemoryEntryType,

@@ -6,12 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Union
 
 import yaml
-from langchain.load import dumps
-from langchain.schema.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_community.chat_models import ChatOpenAI
-from langchain_community.chat_models.azureml_endpoint import AzureMLChatOnlineEndpoint, CustomOpenAIChatContentFormatter
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import AzureChatOpenAI
+from openai import AzureOpenAI, OpenAI
 
 EVALUATOR_PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), "evaluator_prompt.yaml")
 VIRTUAL_USER_PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), "virtual_user_prompt.yaml")
@@ -40,41 +35,22 @@ def get_config(config: Dict[str, str], var_name: str) -> str:
         raise ValueError(f"Config value {var_name} is not found in evaluator_config.json or environment variables.")
 
 
-def config_llm(config: Dict[str, str]) -> Union[ChatOpenAI, AzureChatOpenAI]:
+def config_llm(config: Dict[str, str]) -> Tuple[Union[OpenAI, AzureOpenAI], str]:
     api_type = get_config(config, "llm.api_type")
+    model_name = get_config(config, "llm.model")
     if api_type == "azure":
-        model = AzureChatOpenAI(
+        client = AzureOpenAI(
             azure_endpoint=get_config(config, "llm.api_base"),
-            openai_api_key=get_config(config, "llm.api_key"),
-            openai_api_version=get_config(config, "llm.api_version"),
-            azure_deployment=get_config(config, "llm.model"),
-            temperature=0,
-            verbose=True,
+            api_key=get_config(config, "llm.api_key"),
+            api_version=get_config(config, "llm.api_version"),
         )
     elif api_type == "openai":
-        model = ChatOpenAI(
-            openai_api_key=get_config(config, "llm.api_key"),
-            model_name=get_config(config, "llm.model"),
-            temperature=0,
-            verbose=True,
-        )
-    elif api_type == "google_ai":
-        os.environ["GOOGLE_API_KEY"] = get_config(config, "llm.api_key")
-        model = ChatGoogleGenerativeAI(
-            temperature=0,
-            model=get_config(config, "llm.model"),
-            verbose=True,
-            convert_system_message_to_human=True,
-        )
-    elif api_type == "azure_ml":
-        model = AzureMLChatOnlineEndpoint(
-            endpoint_url=get_config(config, "llm.api_base"),
-            endpoint_api_key=get_config(config, "llm.api_key"),
-            content_formatter=CustomOpenAIChatContentFormatter(),
+        client = OpenAI(
+            api_key=get_config(config, "llm.api_key"),
         )
     else:
         raise ValueError("Invalid API type. Please check your config file.")
-    return model
+    return client, model_name
 
 
 class VirtualUser:
@@ -85,7 +61,7 @@ class VirtualUser:
         self.prompt_template = self.prompt_data["instruction_template"]
 
         self.config = load_config()
-        self.llm_model = config_llm(self.config)
+        self.llm_client, self.model_name = config_llm(self.config)
 
         self.task_description = task_description
         self.kick_off_message = self.prompt_data["kick_off_message"]
@@ -99,7 +75,7 @@ class VirtualUser:
             kick_off_message=self.kick_off_message,
         )
         round_num = 0
-        chat_history = [SystemMessage(content=sys_message)]
+        chat_history: List[Dict[str, str]] = [{"role": "system", "content": sys_message}]
         print("-" * 100)
         print(f"Task: {self.task_description}")
         print("-" * 100)
@@ -120,9 +96,9 @@ class VirtualUser:
                     break
             except Exception as e:
                 error_message = f"I cannot finish the task because of an error occurred as below: {str(e)}"
-                chat_history.append(HumanMessage(content=error_message))
+                chat_history.append({"role": "user", "content": error_message})
                 print(f"Agent: {error_message}")
-                chat_history.append(AIMessage(content=self.stop_keyword))
+                chat_history.append({"role": "assistant", "content": self.stop_keyword})
                 print(f"User: {self.stop_keyword}")
                 break
         return chat_history
@@ -130,11 +106,19 @@ class VirtualUser:
     def get_reply_from_vuser(
         self,
         message: str,
-        chat_history: List[Union[AIMessage, HumanMessage, SystemMessage]],
+        chat_history: List[Dict[str, str]],
     ) -> str:
-        chat_history.append(HumanMessage(content=message))
-        response = self.llm_model.invoke(chat_history).content
-        chat_history.append(AIMessage(content=response))
+        chat_history.append({"role": "user", "content": message})
+        response = (
+            self.llm_client.chat.completions.create(
+                model=self.model_name,
+                messages=chat_history,
+                temperature=0,
+            )
+            .choices[0]
+            .message.content
+        )
+        chat_history.append({"role": "assistant", "content": response})
         return response
 
     def get_reply_from_agent(self, message: str) -> str:
@@ -149,16 +133,15 @@ class Evaluator(object):
             response_schema=self.prompt_data["response_schema"],
         )
         self.config = load_config()
-        self.llm_model = config_llm(self.config)
+        self.llm_client, self.model_name = config_llm(self.config)
 
     @staticmethod
     def format_input(
         task_description: str,
-        chat_history: List[Union[AIMessage, HumanMessage, SystemMessage]],
+        chat_history: List[Dict[str, str]],
         scoring_point: ScoringPoint,
     ) -> str:
-        chat_history_text = dumps(chat_history[:-1])  # exclude the last message with "stop_keyword"
-        chat_history_text = chat_history_text.replace("HumanMessage", "AgentMessage")
+        chat_history_text = json.dumps(chat_history[:-1], indent=2)
         return (
             f"The task description is: {task_description}\n"
             f"The chat history between user and agent is: {chat_history_text}\n"
@@ -182,20 +165,16 @@ class Evaluator(object):
 
     @staticmethod
     def eval_via_code(
-        chat_history: List[Union[AIMessage, HumanMessage, SystemMessage]],
+        chat_history: List[Dict[str, str]],
         scoring_point: ScoringPoint,
         cwd: Optional[str] = None,
     ) -> Tuple[bool, str]:
         code = scoring_point.eval_code
         eval_code_snippet = "\n".join([f"{line}" for line in code.strip().split("\n")])
         func_code = (
-            f"from langchain.load import load\n"
             f"import json\n"
-            f"from langchain.schema.messages import AIMessage, HumanMessage, SystemMessage\n"
-            f"from langchain_community.chat_models import ChatOpenAI\n"
-            f"from langchain_openai import AzureChatOpenAI\n"
             f"with open('eval_chat_history.json', 'r') as f:\n"
-            f"  chat_history = load(json.load(f))\n"
+            f"  chat_history = json.load(f)\n"
             f"chat_history = chat_history[:-1]\n"  # exclude the last message with "stop_keyword"
             f"{eval_code_snippet}"
         )
@@ -206,7 +185,7 @@ class Evaluator(object):
             os.chdir(cwd)
             sys.path.append(os.getcwd())
 
-        chat_history_text = dumps(chat_history)
+        chat_history_text = json.dumps(chat_history)
         with open("eval_chat_history.json", "w") as f:
             f.write(chat_history_text)
         with open("evaluator_code.py", "w") as f:
@@ -229,7 +208,7 @@ class Evaluator(object):
     def score(
         self,
         task_description: str,
-        chat_history: List[Union[AIMessage, HumanMessage, SystemMessage]],
+        chat_history: List[Dict[str, str]],
         scoring_point: ScoringPoint,
         cwd: Optional[str] = None,
     ) -> Tuple[bool, str]:
@@ -237,18 +216,26 @@ class Evaluator(object):
             return self.eval_via_code(chat_history, scoring_point, cwd)
         else:
             messages = [
-                SystemMessage(content=self.prompt),
-                HumanMessage(content=self.format_input(task_description, chat_history, scoring_point)),
+                {"role": "system", "content": self.prompt},
+                {"role": "user", "content": self.format_input(task_description, chat_history, scoring_point)},
             ]
 
-            response = self.llm_model.invoke(messages).content
+            response = (
+                self.llm_client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=0,
+                )
+                .choices[0]
+                .message.content
+            )
 
             return self.parse_output(response)
 
     def evaluate(
         self,
         task_description: str,
-        chat_history: List[Union[AIMessage, HumanMessage, SystemMessage]],
+        chat_history: List[Dict[str, str]],
         scoring_points: List[ScoringPoint],
         cwd: Optional[str] = None,
     ) -> [float, float]:

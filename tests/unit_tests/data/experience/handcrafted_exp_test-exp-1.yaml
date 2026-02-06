@@ -1,0 +1,39 @@
+exp_id: test-exp-1
+who:
+  - CodeInterpreter
+when: |
+  Use this experience when:
+  - User requests to read or process data from a CSV file
+  - File path is provided (relative or absolute)
+  - Previous attempts resulted in FileNotFoundError
+  - Working with pandas DataFrame operations on CSV files
+
+  Triggers:
+  - Keywords: "CSV", "data file", "read file", "load data"
+  - Error patterns: FileNotFoundError, file not found
+  - User provides file path like "./data.csv" or "path/to/file.csv"
+
+what: |
+  Best Practices for File Operations:
+  1. Always check if file exists before attempting to read:
+     ```python
+     import os
+     if os.path.exists(file_path):
+         data = pd.read_csv(file_path)
+     else:
+         print(f"File not found: {file_path}")
+     ```
+
+  2. Use os.path.abspath() to get absolute path for debugging
+
+  3. Handle common errors gracefully:
+     - FileNotFoundError: Check path, suggest alternatives
+     - PermissionError: Check file permissions
+     - pd.errors.EmptyDataError: Verify file has content
+
+  4. When user provides new file path, update the path variable immediately
+
+  Common Mistakes to Avoid:
+  - Don't assume files exist without checking (os.path.exists)
+  - Don't use hardcoded paths when user provides dynamic paths
+  - Don't ignore FileNotFoundError - handle it with helpful messages

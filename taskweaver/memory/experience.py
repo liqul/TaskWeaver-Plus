@@ -14,29 +14,45 @@ from taskweaver.utils import read_yaml, write_yaml
 
 @dataclass
 class Experience:
-    experience_text: str
+    """Experience with separated selection criteria and instructions.
+
+    Attributes:
+        exp_id: Unique identifier for the experience
+        who: List of role aliases this experience applies to. Empty list means all roles.
+        when: Conditions/scenarios when this experience should be used (for selection)
+        what: Detailed instructions on what to do (injected into prompts)
+    """
     exp_id: str
-    raw_experience_path: Optional[str] = None
-    embedding_model: Optional[str] = None
-    embedding: List[float] = field(default_factory=list)
+    who: List[str]
+    when: str
+    what: str
 
     def to_dict(self):
         return {
             "exp_id": self.exp_id,
-            "experience_text": self.experience_text,
-            "raw_experience_path": self.raw_experience_path,
-            "embedding_model": self.embedding_model,
-            "embedding": self.embedding,
+            "who": self.who,
+            "when": self.when,
+            "what": self.what,
         }
 
     @staticmethod
     def from_dict(d: Dict[str, Any]):
+        who = d.get("who", [])
+        if isinstance(who, str):
+            who = [who]
+        # Support legacy format for backward compatibility
+        if "experience_text" in d and "when" not in d:
+            return Experience(
+                exp_id=d["exp_id"],
+                who=who,
+                when=d["experience_text"],
+                what=d["experience_text"],
+            )
         return Experience(
             exp_id=d["exp_id"],
-            experience_text=d["experience_text"],
-            raw_experience_path=d["raw_experience_path"] if "raw_experience_path" in d else None,
-            embedding_model=d["embedding_model"] if "embedding_model" in d else None,
-            embedding=d["embedding"] if "embedding" in d else [],
+            who=who,
+            when=d["when"],
+            what=d["what"],
         )
 
 
@@ -44,14 +60,13 @@ class ExperienceConfig(ModuleConfig):
     def _configure(self) -> None:
         self._set_name("experience")
 
-        self.default_exp_prompt_path = self._get_path(
-            "default_exp_prompt_path",
+        self.selection_prompt_path = self._get_path(
+            "selection_prompt_path",
             os.path.join(
                 os.path.dirname(__file__),
-                "default_exp_prompt.yaml",
+                "experience_selection_prompt.yaml",
             ),
         )
-        self.retrieve_threshold = self._get_float("retrieve_threshold", 0.2)
 
         self.llm_alias = self._get_str("llm_alias", default="", required=False)
 
@@ -70,7 +85,7 @@ class ExperienceGenerator:
         self.logger = logger
         self.tracing = tracing
 
-        self.default_prompt_template = read_yaml(self.config.default_exp_prompt_path)["content"]
+        self.selection_prompt_template = read_yaml(self.config.selection_prompt_path)["content"]
 
         self.experience_list: List[Experience] = []
 
@@ -83,215 +98,202 @@ class ExperienceGenerator:
     def set_sub_path(self, sub_path: str):
         self.sub_path = sub_path
 
-    @staticmethod
-    def _preprocess_conversation_data(
-        conv_data: dict,
-    ):
-        def remove_id_fields(d):
-            if isinstance(d, dict):
-                for key in list(d.keys()):
-                    if key == "id":
-                        del d[key]
-                    else:
-                        remove_id_fields(d[key])
-            elif isinstance(d, list):
-                for item in d:
-                    remove_id_fields(item)
-
-        conv_data = conv_data["rounds"]
-        remove_id_fields(conv_data)
-
-        return conv_data
-
     @tracing_decorator
-    def summarize_experience(
-        self,
-        exp_id: str,
-        prompt: Optional[str] = None,
-    ):
-        exp_dir = self.get_experience_dir()
-
-        raw_exp_file_path = os.path.join(exp_dir, f"raw_exp_{exp_id}.yaml")
-        conversation = read_yaml(raw_exp_file_path)
-
-        conversation = self._preprocess_conversation_data(conversation)
-
-        system_instruction = prompt if prompt else self.default_prompt_template
-        prompt = [
-            format_chat_message("system", system_instruction),
-            format_chat_message("user", json.dumps(conversation)),
-        ]
-        self.tracing.set_span_attribute("prompt", json.dumps(prompt, indent=2))
-        prompt_size = self.tracing.count_tokens(json.dumps(prompt))
-        self.tracing.set_span_attribute("prompt_size", prompt_size)
-        self.tracing.add_prompt_size(
-            size=prompt_size,
-            labels={
-                "direction": "input",
-            },
-        )
-        summarized_experience = self.llm_api.chat_completion(prompt, llm_alias=self.config.llm_alias)["content"]
-        output_size = self.tracing.count_tokens(summarized_experience)
-        self.tracing.set_span_attribute("output_size", output_size)
-        self.tracing.add_prompt_size(
-            size=output_size,
-            labels={
-                "direction": "output",
-            },
-        )
-
-        return summarized_experience
-
-    @tracing_decorator
-    def refresh(
-        self,
-        prompt: Optional[str] = None,
-    ):
+    def refresh(self):
+        """Load handcrafted experiences from the experience directory."""
         exp_dir = self.get_experience_dir()
 
         if not os.path.exists(exp_dir):
-            raise ValueError(f"Experience directory {exp_dir} does not exist.")
+            self.logger.warning(f"Experience directory {exp_dir} does not exist. No experiences loaded.")
+            return
 
-        exp_files = os.listdir(exp_dir)
-
-        raw_exp_ids = [
-            os.path.splitext(os.path.basename(exp_file))[0].split("_")[2]
-            for exp_file in exp_files
-            if exp_file.startswith("raw_exp")
+        handcrafted_exp_files = [
+            exp_file
+            for exp_file in os.listdir(exp_dir)
+            if exp_file.startswith("handcrafted_exp_") and exp_file.endswith(".yaml")
         ]
 
-        handcrafted_exp_ids = [
-            os.path.splitext(os.path.basename(exp_file))[0].split("_")[2]
-            for exp_file in exp_files
-            if exp_file.startswith("handcrafted_exp")
-        ]
-
-        exp_ids = raw_exp_ids + handcrafted_exp_ids
-
-        if len(exp_ids) == 0:
+        if len(handcrafted_exp_files) == 0:
             self.logger.warning(
-                "No raw experience found. "
-                "Please type /save in the chat window to save raw experience"
-                "or write handcrafted experience.",
+                "No handcrafted experience found. "
+                "Please create handcrafted_exp_{id}.yaml files in the experience directory.",
             )
             return
 
-        to_be_embedded = []
-        for idx, exp_id in enumerate(exp_ids):
-            rebuild_flag = False
-            exp_file_name = f"exp_{exp_id}.yaml"
-            if exp_file_name not in os.listdir(exp_dir):
-                rebuild_flag = True
-            else:
-                exp_file_path = os.path.join(exp_dir, exp_file_name)
-                experience = read_yaml(exp_file_path)
-                if (
-                    experience["embedding_model"] != self.llm_api.embedding_service.config.embedding_model
-                    or len(experience["embedding"]) == 0
-                ):
-                    rebuild_flag = True
-
-            if rebuild_flag:
-                if exp_id in raw_exp_ids:
-                    summarized_experience = self.summarize_experience(exp_id, prompt)
-                    experience_obj = Experience(
-                        experience_text=summarized_experience,
-                        exp_id=exp_id,
-                        raw_experience_path=os.path.join(
-                            exp_dir,
-                            f"raw_exp_{exp_id}.yaml",
-                        ),
-                    )
-                elif exp_id in handcrafted_exp_ids:
-                    handcrafted_exp_file_path = os.path.join(
-                        exp_dir,
-                        f"handcrafted_exp_{exp_id}.yaml",
-                    )
-                    experience_obj = Experience.from_dict(read_yaml(handcrafted_exp_file_path))
-                else:
-                    raise ValueError(f"Experience {exp_id} not found in raw or handcrafted experience.")
-
-                to_be_embedded.append(experience_obj)
-
-        if len(to_be_embedded) == 0:
-            return
-        else:
-            exp_embeddings = self.llm_api.get_embedding_list(
-                [exp.experience_text for exp in to_be_embedded],
-            )
-            for i, exp in enumerate(to_be_embedded):
-                exp.embedding = exp_embeddings[i]
-                exp.embedding_model = self.llm_api.embedding_service.config.embedding_model
-                experience_file_path = os.path.join(exp_dir, f"exp_{exp.exp_id}.yaml")
-                write_yaml(experience_file_path, exp.to_dict())
-
-            self.logger.info("Experience obj saved.")
+        self.logger.info(f"Found {len(handcrafted_exp_files)} handcrafted experience file(s) in {exp_dir}.")
 
     @tracing_decorator
     def load_experience(self):
+        """Load handcrafted experiences into memory."""
         exp_dir = self.get_experience_dir()
 
         if not os.path.exists(exp_dir):
-            raise ValueError(f"Experience directory {exp_dir} does not exist.")
-
-        original_exp_files = [
-            exp_file
-            for exp_file in os.listdir(exp_dir)
-            if exp_file.startswith("raw_exp_") or exp_file.startswith("handcrafted_exp_")
-        ]
-        exp_ids = [os.path.splitext(os.path.basename(exp_file))[0].split("_")[2] for exp_file in original_exp_files]
-        if len(exp_ids) == 0:
-            self.logger.warning(
-                "No experience found.",
-            )
+            self.logger.warning(f"Experience directory {exp_dir} does not exist.")
             return
 
-        for exp_id in exp_ids:
-            exp_id_exists = exp_id in [exp.exp_id for exp in self.experience_list]
-            if exp_id_exists:
+        handcrafted_exp_files = [
+            exp_file
+            for exp_file in os.listdir(exp_dir)
+            if exp_file.startswith("handcrafted_exp_") and exp_file.endswith(".yaml")
+        ]
+
+        if len(handcrafted_exp_files) == 0:
+            self.logger.warning("No handcrafted experience files found.")
+            return
+
+        loaded_ids = {exp.exp_id for exp in self.experience_list}
+
+        for exp_file in handcrafted_exp_files:
+            exp_file_path = os.path.join(exp_dir, exp_file)
+            experience_data = read_yaml(exp_file_path)
+            experience_obj = Experience.from_dict(experience_data)
+
+            if experience_obj.exp_id in loaded_ids:
                 continue
 
-            exp_file = f"exp_{exp_id}.yaml"
-            exp_file_path = os.path.join(exp_dir, exp_file)
-            assert os.path.exists(exp_file_path), f"Experience {exp_file} not found. "
+            self.experience_list.append(experience_obj)
+            loaded_ids.add(experience_obj.exp_id)
+            self.logger.info(
+                f"Loaded experience [{experience_obj.exp_id}] from {exp_file} "
+                f"targeting {experience_obj.who or 'all roles'}",
+            )
 
-            experience = read_yaml(exp_file_path)
-
-            assert len(experience["embedding"]) > 0, f"Experience {exp_file} has no embedding."
-            assert (
-                experience["embedding_model"] == self.llm_api.embedding_service.config.embedding_model
-            ), f"Experience {exp_file} has different embedding model."
-
-            self.experience_list.append(Experience(**experience))
+        self.logger.info(f"Loaded {len(self.experience_list)} experience(s) in total.")
 
     @tracing_decorator
-    def retrieve_experience(self, user_query: str) -> List[Tuple[Experience, float]]:
-        import numpy as np
-        from sklearn.metrics.pairwise import cosine_similarity
+    def retrieve_experience(
+        self,
+        user_query: str,
+        role: Optional[str] = None,
+        conversation_context: Optional[str] = None,
+        prompt_log_path: Optional[str] = None,
+    ) -> List[Experience]:
+        """Use LLM to select relevant experiences based on user query and conversation context.
 
-        user_query_embedding = np.array(self.llm_api.get_embedding(user_query))
+        Args:
+            user_query: The current user query
+            role: Role alias to filter experiences by their "who" field.
+                  Only experiences targeting this role (or all roles) are considered.
+            conversation_context: Optional conversation history for better context
+            prompt_log_path: Optional path to dump the selection prompt for debugging
 
-        similarities = []
+        Returns:
+            List of selected Experience objects
+        """
+        role_tag = f"[{role}] " if role else ""
 
-        for experience in self.experience_list:
-            similarity = cosine_similarity(
-                user_query_embedding.reshape(
-                    1,
-                    -1,
-                ),
-                np.array(experience.embedding).reshape(1, -1),
+        # Filter by role: include experiences that target this role or target all roles (empty who)
+        candidates = [
+            exp for exp in self.experience_list
+            if len(exp.who) == 0 or role is None or role in exp.who
+        ]
+        skipped = len(self.experience_list) - len(candidates)
+        if skipped > 0:
+            self.logger.info(
+                f"{role_tag}Filtered {skipped} experience(s) not targeting role, "
+                f"{len(candidates)} candidate(s) remaining",
             )
-            similarities.append((experience, similarity))
 
-        experience_rank = sorted(
-            similarities,
-            key=lambda x: x[1],
-            reverse=True,
+        if len(candidates) == 0:
+            self.logger.info(f"{role_tag}No experiences available.")
+            return []
+
+        self.logger.info(
+            f"{role_tag}Selecting from {len(candidates)} experience(s) "
+            f"[{', '.join(e.exp_id for e in candidates)}]",
         )
 
-        selected_experiences = [(exp, sim) for exp, sim in experience_rank if sim >= self.config.retrieve_threshold]
-        self.logger.info(f"Retrieved {len(selected_experiences)} experiences.")
-        self.logger.info(f"Retrieved experiences: {[exp.exp_id for exp, sim in selected_experiences]}")
+        if conversation_context:
+            self.logger.debug(f"{role_tag}Conversation context for selection:\n{conversation_context}")
+
+        # Format experiences for the LLM prompt (only show "when" sections for selection)
+        experiences_text = ""
+        for idx, exp in enumerate(candidates):
+            experiences_text += f"\n--- Experience {idx + 1} (ID: {exp.exp_id}) ---\n{exp.when}\n"
+
+        # Build the selection prompt
+        context_section = f"\n\nConversation Context:\n{conversation_context}" if conversation_context else ""
+
+        prompt = self.selection_prompt_template.format(
+            experiences=experiences_text,
+            user_query=user_query,
+            context=context_section,
+        )
+
+        messages = [
+            format_chat_message("system", prompt),
+            format_chat_message("user", f"Select relevant experiences for: {user_query}"),
+        ]
+
+        self.tracing.set_span_attribute("prompt", json.dumps(messages, indent=2))
+        prompt_size = self.tracing.count_tokens(json.dumps(messages))
+        self.tracing.set_span_attribute("prompt_size", prompt_size)
+        self.tracing.add_prompt_size(
+            size=prompt_size,
+            labels={"direction": "input"},
+        )
+
+        if prompt_log_path is not None:
+            self.logger.dump_prompt_file(messages, prompt_log_path)
+
+        self.logger.info(f"{role_tag}Sending experience selection request to LLM (prompt_size={prompt_size})")
+
+        # Get LLM response
+        response = self.llm_api.chat_completion(messages, llm_alias=self.config.llm_alias)
+        selected_ids_text = response["content"]
+
+        output_size = self.tracing.count_tokens(selected_ids_text)
+        self.tracing.set_span_attribute("output_size", output_size)
+        self.tracing.add_prompt_size(
+            size=output_size,
+            labels={"direction": "output"},
+        )
+
+        self.logger.info(f"{role_tag}LLM selection response: {selected_ids_text}")
+
+        # Parse the response to extract experience IDs
+        selected_experiences = self._parse_selected_experience_ids(selected_ids_text)
+
+        self.logger.info(
+            f"{role_tag}Selected {len(selected_experiences)}/{len(candidates)} experience(s): "
+            f"[{', '.join(e.exp_id for e in selected_experiences)}]",
+        )
+
+        return selected_experiences
+
+    def _parse_selected_experience_ids(self, llm_response: str) -> List[Experience]:
+        """Parse LLM response to extract selected experience IDs.
+
+        Expected formats:
+        - JSON array: ["exp-1", "exp-2"]
+        - JSON object with boolean values: {"exp-1": true, "exp-2": false}
+        """
+        try:
+            # Try to parse as JSON
+            parsed = json.loads(llm_response)
+            if isinstance(parsed, list):
+                selected_ids = parsed
+            elif isinstance(parsed, dict):
+                # Handle {"exp-id": true/false} format (e.g. when response_format=json_object)
+                selected_ids = [k for k, v in parsed.items() if v]
+            else:
+                self.logger.warning(f"Unexpected LLM response type: {llm_response}")
+                return []
+        except json.JSONDecodeError:
+            # Fallback: extract IDs from text
+            self.logger.warning(f"Failed to parse LLM response as JSON, trying text extraction: {llm_response}")
+            import re
+            selected_ids = re.findall(r'["\']([^"\']+)["\']', llm_response)
+
+        # Match IDs to experiences
+        selected_experiences = []
+        for exp_id in selected_ids:
+            matching_exps = [exp for exp in self.experience_list if exp.exp_id == exp_id]
+            if matching_exps:
+                selected_experiences.append(matching_exps[0])
+            else:
+                self.logger.warning(f"Experience ID {exp_id} not found in experience list.")
+
         return selected_experiences
 
     def _delete_exp_file(self, exp_file_name: str):
@@ -307,15 +309,8 @@ class ExperienceGenerator:
         assert self.experience_dir is not None, "Experience directory is not set. Call set_experience_dir() first."
         return os.path.join(self.experience_dir, self.sub_path) if self.sub_path else self.experience_dir
 
-    def delete_experience(self, exp_id: str):
-        exp_file_name = f"exp_{exp_id}.yaml"
-        self._delete_exp_file(exp_file_name)
-
-    def delete_raw_experience(self, exp_id: str):
-        exp_file_name = f"raw_exp_{exp_id}.yaml"
-        self._delete_exp_file(exp_file_name)
-
     def delete_handcrafted_experience(self, exp_id: str):
+        """Delete a handcrafted experience file."""
         exp_file_name = f"handcrafted_exp_{exp_id}.yaml"
         self._delete_exp_file(exp_file_name)
 
@@ -324,11 +319,16 @@ class ExperienceGenerator:
         prompt_template: str,
         selected_experiences: Optional[List[Experience,]] = None,
     ):
+        """Format selected experiences for injection into prompts.
+
+        Only injects the 'what' sections (detailed instructions) into the prompt.
+        The 'when' sections were already used for selection.
+        """
         if selected_experiences is not None and len(selected_experiences) > 0:
             return prompt_template.format(
                 experiences="===================\n"
                 + "\n===================\n".join(
-                    [exp.experience_text for exp in selected_experiences],
+                    [exp.what for exp in selected_experiences],
                 ),
             )
         else:

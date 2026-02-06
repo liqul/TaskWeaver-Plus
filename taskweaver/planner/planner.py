@@ -267,7 +267,12 @@ class Planner(Role):
         self.tracing.set_span_attribute("user_query", user_query)
         self.tracing.set_span_attribute("use_experience", self.config.use_experience)
 
-        self.role_load_experience(query=user_query, memory=memory)
+        experience_log_path = (
+            prompt_log_path.replace("prompt_log", "experience_selection_log")
+            if prompt_log_path is not None
+            else None
+        )
+        self.role_load_experience(query=user_query, memory=memory, prompt_log_path=experience_log_path)
         self.role_load_example(role_set=set(self.recipient_alias_set) | {self.alias, "User"}, memory=memory)
 
         post_proxy = self.event_emitter.create_post_proxy(self.alias)

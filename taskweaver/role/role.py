@@ -10,6 +10,7 @@ from taskweaver.config.config_mgt import AppConfigSource
 from taskweaver.config.module_config import ModuleConfig
 from taskweaver.logging import TelemetryLogger
 from taskweaver.memory import Conversation, Memory, Post
+from taskweaver.memory.attachment import AttachmentType
 from taskweaver.memory.experience import Experience, ExperienceGenerator
 from taskweaver.misc.component_registry import ComponentRegistry
 from taskweaver.misc.example import load_examples
@@ -199,6 +200,7 @@ class Role:
         self,
         query: str,
         memory: Optional[Memory] = None,
+        prompt_log_path: Optional[str] = None,
     ) -> None:
         sub_path = self.prepare_loading(
             self.config.use_experience,
@@ -228,9 +230,37 @@ class Role:
             ),
         )
 
-        experiences = self.experience_generator.retrieve_experience(query)
-        self.logger.info(f"Retrieved {len(experiences)} experiences for query [{query}]")
-        self.experiences = [exp for exp, _ in experiences]
+        context = self._build_experience_context(memory) if memory is not None else None
+        experiences = self.experience_generator.retrieve_experience(
+            query,
+            role=self.alias,
+            conversation_context=context,
+            prompt_log_path=prompt_log_path,
+        )
+        self.logger.info(f"[{self.alias}] Retrieved {len(experiences)} experiences for query [{query}]")
+        self.experiences = experiences
+
+    def _build_experience_context(self, memory: Memory) -> Optional[str]:
+        """Extract a brief conversation context from this role's view of memory."""
+        rounds = memory.get_role_rounds(self.alias)
+        if len(rounds) == 0:
+            self.logger.info(f"No conversation rounds found for [{self.alias}], skipping context.")
+            return None
+
+        self.logger.info(f"Building experience context from {len(rounds)} round(s) for [{self.alias}].")
+        lines = []
+        for rnd in rounds[-3:]:
+            lines.append(f"User: {rnd.user_query}")
+            for post in rnd.post_list:
+                for att in post.attachment_list:
+                    if att.type == AttachmentType.execution_status:
+                        lines.append(f"Execution: {att.content}")
+                    elif att.type == AttachmentType.code_error and att.content and att.content.strip():
+                        lines.append(f"Error: {att.content}")
+        context = "\n".join(lines) if lines else None
+        if context:
+            self.logger.debug(f"Experience context ({len(lines)} line(s)):\n{context}")
+        return context
 
     def role_load_example(
         self,

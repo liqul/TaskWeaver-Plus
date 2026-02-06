@@ -576,9 +576,6 @@ class TaskWeaverChatApp(SessionEventHandlerBase):
                 file_to_load = msg[5:].strip()
                 self._load_file(file_to_load)
                 return
-            if lower_command == "save":
-                self._save_memory()
-                return
             if lower_command == "info":
                 self._system_message(f"Session Id:{self.session.session_id}")
                 self._system_message(f"Roles: {self.session.config.roles}")
@@ -599,13 +596,9 @@ class TaskWeaverChatApp(SessionEventHandlerBase):
                 /clear: clear the console
                 /exit: exit the chat console
                 /help: print this help message
-                /save: save the chat history of the current session for experience extraction
                 """,
             ),
         )
-
-    def _save_memory(self):
-        self.session.memory.save_experience(exp_dir=self.session.config.experience_dir)
 
     def _load_file(self, file_to_load: str):
         import os

@@ -313,6 +313,62 @@ def test_with_custom_config(app_injector):
     ...
 ```
 
+## Experience System
+
+The experience system uses **handcrafted experiences** with **when/what structure** and **LLM-based selection**:
+
+### Key Features
+- ✅ **When/What Format**: Separate selection criteria from instructions
+- ✅ **LLM Selection**: LLM evaluates "when" sections to select relevant experiences
+- ✅ **Clean Injection**: Only "what" sections injected into prompts
+- ❌ **No Embeddings**: No embedding generation or similarity search
+
+### Creating Experiences
+Create files in `project/experience/` with this structure:
+
+```yaml
+# handcrafted_exp_file-validation.yaml
+exp_id: file-validation
+when: |
+  Use this experience when:
+  - User requests to read/process CSV or data files
+  - File path is provided in query
+  - FileNotFoundError or file access errors occurred
+
+  Triggers:
+  - Keywords: "CSV", "file", "read data", "load file"
+  - Error patterns: FileNotFoundError, PermissionError
+
+what: |
+  Best Practices for File Operations:
+  1. Always check if file exists:
+     ```python
+     if os.path.exists(file_path):
+         data = pd.read_csv(file_path)
+     ```
+
+  2. Handle errors with clear messages
+
+  Common Mistakes:
+  - Don't assume files exist without checking
+  - Don't ignore FileNotFoundError
+```
+
+### How It Works
+1. **Selection**: LLM reads all "when" sections and selects relevant experience IDs
+2. **Injection**: Only "what" sections of selected experiences are injected into prompts
+3. **Efficient**: Separates selection criteria from detailed instructions
+
+### Configuration
+```json
+{
+  "planner.use_experience": true,
+  "planner.experience_dir": "./project/experience"
+}
+```
+
+See `taskweaver/memory/AGENTS.md` for details.
+
 ## Important Notes
 
 ### Agent Documentation
