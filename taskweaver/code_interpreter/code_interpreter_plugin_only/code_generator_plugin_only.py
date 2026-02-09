@@ -4,11 +4,10 @@ from typing import List, Optional
 
 from injector import inject
 
-from taskweaver.code_interpreter.plugin_selection import PluginSelector, SelectedPluginPool
 from taskweaver.llm import LLMApi, format_chat_message
 from taskweaver.llm.util import PromptTypeWithTools
 from taskweaver.logging import TelemetryLogger
-from taskweaver.memory import Memory, Post, Round
+from taskweaver.memory import CompactedMessage, CompactorConfig, ContextCompactor, Memory, Post, Round
 from taskweaver.memory.attachment import AttachmentType
 from taskweaver.memory.plugin import PluginEntry, PluginRegistry
 from taskweaver.module.event_emitter import PostEventProxy, SessionEventEmitter
@@ -31,21 +30,18 @@ class CodeGeneratorPluginOnlyConfig(RoleConfig):
             ),
         )
         self.prompt_compression = self._get_bool("prompt_compression", False)
-        assert self.prompt_compression is False, "Compression is not supported for plugin only mode."
-
         self.compression_prompt_path = self._get_path(
-            "compression_prompt_path",
+            "compaction_prompt_path",
             os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
-                "compression_prompt.yaml",
+                "..",
+                "code_interpreter",
+                "compaction_prompt.yaml",
             ),
         )
-        self.enable_auto_plugin_selection = self._get_bool(
-            "enable_auto_plugin_selection",
-            False,
-        )
-        self.auto_plugin_selection_topk = self._get_int("auto_plugin_selection_topk", 3)
-
+        self.compaction_threshold = self._get_int("compaction_threshold", 10)
+        self.compaction_retain_recent = self._get_int("compaction_retain_recent", 3)
+        self.compaction_llm_alias = self._get_str("compaction_llm_alias", default="", required=False)
         self.llm_alias = self._get_str("llm_alias", default="", required=False)
 
 
@@ -70,27 +66,21 @@ class CodeGeneratorPluginOnly(Role):
         self.plugin_pool = [p for p in plugin_registry.get_list() if p.plugin_only is True]
         self.instruction_template = self.prompt_data["content"]
 
-        if self.config.enable_auto_plugin_selection:
-            self.plugin_selector = PluginSelector(plugin_registry, self.llm_api)
-            self.plugin_selector.load_plugin_embeddings()
-            logger.info("Plugin embeddings loaded")
-            self.selected_plugin_pool = SelectedPluginPool()
-
-    def select_plugins_for_prompt(
-        self,
-        user_query: str,
-    ) -> List[PluginEntry]:
-        selected_plugins = self.plugin_selector.plugin_select(
-            user_query,
-            self.config.auto_plugin_selection_topk,
-        )
-        self.selected_plugin_pool.add_selected_plugins(selected_plugins)
-        self.logger.info(f"Selected plugins: {[p.name for p in selected_plugins]}")
-        self.logger.info(
-            f"Selected plugin pool: {[p.name for p in self.selected_plugin_pool.get_plugins()]}",
-        )
-
-        return self.selected_plugin_pool.get_plugins()
+        self.compactor: Optional[ContextCompactor] = None
+        if self.config.prompt_compression:
+            compactor_config = CompactorConfig(
+                threshold=self.config.compaction_threshold,
+                retain_recent=self.config.compaction_retain_recent,
+                prompt_template_path=self.config.compression_prompt_path,
+                enabled=True,
+            )
+            self.compactor = ContextCompactor(
+                config=compactor_config,
+                llm_api=llm_api,
+                rounds_getter=lambda: [],
+                logger=lambda msg: self.logger.info(msg),
+                llm_alias=self.config.compaction_llm_alias,
+            )
 
     @tracing_decorator
     def reply(
@@ -102,20 +92,24 @@ class CodeGeneratorPluginOnly(Role):
     ) -> Post:
         assert post_proxy is not None, "Post proxy is not provided."
 
-        # extract all rounds from memory
-        rounds = memory.get_role_rounds(
+        if self.compactor:
+            memory.register_compaction_provider(
+                self.alias,
+                self.compactor,
+                rounds_getter=lambda: memory.get_role_rounds(role=self.alias),
+            )
+            self.compactor.start()
+
+        rounds, compaction = memory.get_role_rounds_with_compaction(
             role=self.alias,
             include_failure_rounds=False,
         )
 
+        if compaction:
+            rounds = rounds[compaction.end_index :]
+
         user_query = rounds[-1].user_query
         self.tracing.set_span_attribute("user_query", user_query)
-        self.tracing.set_span_attribute(
-            "enable_auto_plugin_selection",
-            self.config.enable_auto_plugin_selection,
-        )
-        if self.config.enable_auto_plugin_selection:
-            self.plugin_pool = self.select_plugins_for_prompt(user_query)
 
         # obtain the user query from the last round
         prompt_with_tools = self._compose_prompt(
@@ -174,11 +168,6 @@ class CodeGeneratorPluginOnly(Role):
             )
             self.tracing.set_span_attribute("functions", llm_response["content"])
 
-            if self.config.enable_auto_plugin_selection:
-                # here the code is in json format, not really code
-                self.selected_plugin_pool.filter_unused_plugins(
-                    code=llm_response["content"],
-                )
             return post_proxy.end()
         else:
             self.tracing.set_span_status(

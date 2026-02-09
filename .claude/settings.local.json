@@ -4,7 +4,17 @@
       "Bash(conda activate:*)",
       "Bash(python:*)",
       "Bash(ls:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(C:Usersliqliminiconda3envstaskweaverpython.exe -c \"from taskweaver.code_interpreter.code_interpreter.code_generator import CodeGenerator; print\\(''Import OK''\\)\")",
+      "Bash(where:*)",
+      "Bash(cmd /c \"C:\\\\Users\\\\liqli\\\\AppData\\\\Local\\\\miniconda3\\\\Scripts\\\\activate.bat taskweaver && python -c \"\"from taskweaver.code_interpreter.code_interpreter.code_generator import CodeGenerator; print\\(''CodeGenerator Import OK''\\)\"\" && python -c \"\"from taskweaver.code_interpreter.code_interpreter_plugin_only.code_generator_plugin_only import CodeGeneratorPluginOnly; print\\(''PluginOnly Import OK''\\)\"\" && python -c \"\"from taskweaver.memory.plugin import PluginEntry, PluginRegistry; print\\(''Plugin Import OK''\\)\"\"\")",
+      "Bash(cmd /c \"C:\\\\Users\\\\liqli\\\\AppData\\\\Local\\\\miniconda3\\\\condabin\\\\conda.bat activate taskweaver && python -c \"\"from taskweaver.memory.plugin import PluginEntry; print\\(''OK''\\)\"\"\")",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\liqli\\\\AppData\\\\Local\\\\miniconda3\\\\envs\\\\taskweaver\\\\python.exe\")",
+      "Bash(\"C:/Users/liqli/AppData/Local/miniconda3/envs/taskweaver/python.exe\" -c \"from taskweaver.memory.plugin import PluginEntry; print\\(''Plugin Import OK''\\)\")",
+      "Bash(\"C:/Users/liqli/AppData/Local/miniconda3/envs/taskweaver/python.exe\" -c \"from taskweaver.code_interpreter.code_interpreter.code_generator import CodeGenerator; print\\(''CodeGenerator Import OK''\\)\")",
+      "Bash(\"C:/Users/liqli/AppData/Local/miniconda3/envs/taskweaver/python.exe\" -c \"from taskweaver.code_interpreter.code_interpreter_plugin_only.code_generator_plugin_only import CodeGeneratorPluginOnly; print\\(''PluginOnly Import OK''\\)\")",
+      "Bash(\"C:/Users/liqli/AppData/Local/miniconda3/envs/taskweaver/python.exe\" -m pytest tests/unit_tests/test_plugin.py -v)",
+      "Bash(\"C:/Users/liqli/AppData/Local/miniconda3/envs/taskweaver/python.exe\" -m pytest tests/unit_tests/test_code_generator.py -v)"
     ]
   }
 }

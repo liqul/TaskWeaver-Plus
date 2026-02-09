@@ -19,54 +19,26 @@ class ScoringPoint:
     eval_code: Optional[str] = None
 
 
-def load_config():
-    with open("evaluator_config.json", "r") as f:
-        evaluator_config = json.load(f)
-    return evaluator_config
-
-
-def get_config(config: Dict[str, str], var_name: str) -> str:
-    val = os.environ.get(var_name, None)
-    if val is not None:
-        return val
-    elif var_name in config.keys():
-        return config.get(var_name)
-    else:
-        raise ValueError(f"Config value {var_name} is not found in evaluator_config.json or environment variables.")
-
-
-def config_llm(config: Dict[str, str]) -> Tuple[Union[OpenAI, AzureOpenAI], str]:
-    api_type = get_config(config, "llm.api_type")
-    model_name = get_config(config, "llm.model")
-    if api_type == "azure":
-        client = AzureOpenAI(
-            azure_endpoint=get_config(config, "llm.api_base"),
-            api_key=get_config(config, "llm.api_key"),
-            api_version=get_config(config, "llm.api_version"),
-        )
-    elif api_type == "openai":
-        client = OpenAI(
-            api_key=get_config(config, "llm.api_key"),
-        )
-    else:
-        raise ValueError("Invalid API type. Please check your config file.")
-    return client, model_name
-
-
 class VirtualUser:
-    def __init__(self, task_description: str):
+    def __init__(
+        self,
+        task_description: str,
+        llm_client: Union[OpenAI, AzureOpenAI],
+        model_name: str,
+        max_rounds: int = 5,
+    ):
         with open(VIRTUAL_USER_PROMPT_FILE_PATH, "r") as file:
             self.prompt_data = yaml.safe_load(file)
         self.stop_keyword = self.prompt_data["stop_keyword"]
         self.prompt_template = self.prompt_data["instruction_template"]
 
-        self.config = load_config()
-        self.llm_client, self.model_name = config_llm(self.config)
+        self.llm_client = llm_client
+        self.model_name = model_name
 
         self.task_description = task_description
         self.kick_off_message = self.prompt_data["kick_off_message"]
 
-        self.max_rounds = self.config.get("virtual_user.max_rounds", 5)
+        self.max_rounds = max_rounds
 
     def talk_with_agent(self, verbose: bool = False):
         sys_message = self.prompt_template.format(
@@ -126,14 +98,14 @@ class VirtualUser:
 
 
 class Evaluator(object):
-    def __init__(self):
+    def __init__(self, llm_client: Union[OpenAI, AzureOpenAI], model_name: str):
         with open(EVALUATOR_PROMPT_FILE_PATH, "r") as file:
             self.prompt_data = yaml.safe_load(file)
         self.prompt = self.prompt_data["instruction_template"].format(
             response_schema=self.prompt_data["response_schema"],
         )
-        self.config = load_config()
-        self.llm_client, self.model_name = config_llm(self.config)
+        self.llm_client = llm_client
+        self.model_name = model_name
 
     @staticmethod
     def format_input(

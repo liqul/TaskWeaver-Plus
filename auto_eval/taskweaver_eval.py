@@ -14,15 +14,24 @@ from evaluator import Evaluator, ScoringPoint, VirtualUser
 from utils import check_package_version, load_task_case
 
 from taskweaver.app.app import TaskWeaverApp
+from taskweaver.llm import LLMApi
+
+
+def _get_llm_client_from_app(app: TaskWeaverApp):
+    """Extract the OpenAI client and model name from a TaskWeaverApp instance."""
+    llm_api = app.app_injector.get(LLMApi)
+    service = llm_api.completion_service
+    return service.client, service.config.model
 
 
 class TaskWeaverVirtualUser(VirtualUser):
     def __init__(self, task_description: str, app_dir: str, config_var: Optional[dict] = None):
-        super().__init__(task_description)
-
         self.app = TaskWeaverApp(app_dir=app_dir, config=config_var)
         self.session = self.app.get_session()
         self.session_id = self.session.session_id
+
+        llm_client, model_name = _get_llm_client_from_app(self.app)
+        super().__init__(task_description, llm_client, model_name)
 
     def get_reply_from_agent(self, message: str, verbose: bool = False) -> str:
         response_round = self.session.send_message(
@@ -79,7 +88,7 @@ def auto_evaluate_for_taskweaver(
             print(result.stderr)
 
     taskweaver_vuser = TaskWeaverVirtualUser(task_description, app_dir, config_var)
-    taskweaver_evaluator = Evaluator()
+    taskweaver_evaluator = Evaluator(taskweaver_vuser.llm_client, taskweaver_vuser.model_name)
 
     working_directory = os.path.join(app_dir, "workspace", "sessions", taskweaver_vuser.session_id, "cwd")
 

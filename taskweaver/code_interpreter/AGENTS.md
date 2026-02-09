@@ -9,7 +9,6 @@ code_interpreter/
 ├── interpreter.py              # Interpreter ABC (update_session_variables)
 ├── code_executor.py            # CodeExecutor - bridges to CES
 ├── code_verification.py        # AST-based code validation
-├── plugin_selection.py         # Plugin selection logic
 ├── code_interpreter/           # Full code interpreter
 │   ├── code_interpreter.py     # CodeInterpreter role (~320 lines)
 │   ├── code_generator.py       # LLM-based code generation

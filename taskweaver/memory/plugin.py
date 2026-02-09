@@ -12,34 +12,6 @@ from taskweaver.utils import read_yaml, validate_yaml
 
 
 @dataclass
-class PluginMetaData:
-    name: str
-    embedding: List[float] = field(default_factory=list)
-    embedding_model: Optional[str] = None
-    path: Optional[str] = None
-    md5hash: Optional[str] = None
-
-    @staticmethod
-    def from_dict(d: Dict[str, Any]):
-        return PluginMetaData(
-            name=d["name"],
-            embedding=d["embedding"] if "embedding" in d else [],
-            embedding_model=d["embedding_model"] if "embedding_model" in d else None,
-            path=d["path"] if "path" in d else None,
-            md5hash=d["md5hash"] if "md5hash" in d else None,
-        )
-
-    def to_dict(self):
-        return {
-            "name": self.name,
-            "embedding": self.embedding,
-            "embedding_model": self.embedding_model,
-            "path": self.path,
-            "md5hash": self.md5hash,
-        }
-
-
-@dataclass
 class PluginParameter:
     """PluginParameter is the data structure for plugin parameters (including arguments and return values.)"""
 
@@ -179,31 +151,15 @@ class PluginEntry:
     config: Dict[str, Any]
     required: bool
     enabled: bool = True
-    meta_data: Optional[PluginMetaData] = None
 
     @staticmethod
     def from_yaml_file(path: str) -> Optional["PluginEntry"]:
         content = read_yaml(path)
-        yaml_file_name = os.path.basename(path)
-        meta_file_path = os.path.join(
-            os.path.dirname(path),
-            ".meta",
-            f"meta_{yaml_file_name}",
-        )
-        if os.path.exists(meta_file_path):
-            meta_data = PluginMetaData.from_dict(read_yaml(meta_file_path))
-            meta_data.path = meta_file_path
-        else:
-            meta_data = PluginMetaData(
-                name=os.path.splitext(yaml_file_name)[0],
-                path=meta_file_path,
-            )
-        return PluginEntry.from_yaml_content(content, meta_data)
+        return PluginEntry.from_yaml_content(content)
 
     @staticmethod
     def from_yaml_content(
         content: Dict[Any, Any],
-        meta_data: Optional[PluginMetaData] = None,
     ) -> Optional["PluginEntry"]:
         do_validate = False
         valid_state = False
@@ -219,7 +175,6 @@ class PluginEntry:
                 required=content.get("required", False),
                 enabled=content.get("enabled", True),
                 plugin_only=content.get("plugin_only", False),
-                meta_data=meta_data,
             )
         return None
 

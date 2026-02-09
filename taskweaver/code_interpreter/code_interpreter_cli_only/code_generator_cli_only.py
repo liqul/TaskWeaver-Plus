@@ -7,7 +7,7 @@ from injector import inject
 from taskweaver.llm import LLMApi, format_chat_message
 from taskweaver.llm.util import ChatMessageType, PromptTypeWithTools
 from taskweaver.logging import TelemetryLogger
-from taskweaver.memory import Memory, Post, Round
+from taskweaver.memory import CompactedMessage, CompactorConfig, ContextCompactor, Memory, Post, Round
 from taskweaver.memory.attachment import AttachmentType
 from taskweaver.module.event_emitter import PostEventProxy, SessionEventEmitter
 from taskweaver.module.tracing import Tracing, tracing_decorator
@@ -29,15 +29,18 @@ class CodeGeneratorCLIOnlyConfig(RoleConfig):
             ),
         )
         self.prompt_compression = self._get_bool("prompt_compression", False)
-        assert self.prompt_compression is False, "Compression is not supported for CLI only mode."
-
         self.compression_prompt_path = self._get_path(
-            "compression_prompt_path",
+            "compaction_prompt_path",
             os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
-                "compression_prompt.yaml",
+                "..",
+                "code_interpreter",
+                "compaction_prompt.yaml",
             ),
         )
+        self.compaction_threshold = self._get_int("compaction_threshold", 10)
+        self.compaction_retain_recent = self._get_int("compaction_retain_recent", 3)
+        self.compaction_llm_alias = self._get_str("compaction_llm_alias", default="", required=False)
 
 
 class CodeGeneratorCLIOnly(Role):
@@ -59,6 +62,22 @@ class CodeGeneratorCLIOnly(Role):
         self.prompt_data = read_yaml(self.config.prompt_file_path)
         self.instruction_template = self.prompt_data["content"]
 
+        self.compactor: Optional[ContextCompactor] = None
+        if self.config.prompt_compression:
+            compactor_config = CompactorConfig(
+                threshold=self.config.compaction_threshold,
+                retain_recent=self.config.compaction_retain_recent,
+                prompt_template_path=self.config.compression_prompt_path,
+                enabled=True,
+            )
+            self.compactor = ContextCompactor(
+                config=compactor_config,
+                llm_api=llm_api,
+                rounds_getter=lambda: [],
+                logger=lambda msg: self.logger.info(msg),
+                llm_alias=self.config.compaction_llm_alias,
+            )
+
         import platform
 
         self.os_name = platform.system()
@@ -74,11 +93,21 @@ class CodeGeneratorCLIOnly(Role):
     ) -> Post:
         assert post_proxy is not None, "Post proxy is not provided."
 
-        # extract all rounds from memory
-        rounds = memory.get_role_rounds(
+        if self.compactor:
+            memory.register_compaction_provider(
+                self.alias,
+                self.compactor,
+                rounds_getter=lambda: memory.get_role_rounds(role=self.alias),
+            )
+            self.compactor.start()
+
+        rounds, compaction = memory.get_role_rounds_with_compaction(
             role=self.alias,
             include_failure_rounds=False,
         )
+
+        if compaction:
+            rounds = rounds[compaction.end_index :]
 
         prompt = self._compose_prompt(
             system_instructions=self.instruction_template.format(

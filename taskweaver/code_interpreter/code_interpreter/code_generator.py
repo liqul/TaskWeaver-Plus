@@ -5,7 +5,6 @@ from typing import List, Literal, Optional, Union
 
 from injector import inject
 
-from taskweaver.code_interpreter.plugin_selection import PluginSelector, SelectedPluginPool
 from taskweaver.llm import LLMApi
 from taskweaver.llm.util import ChatMessageType, format_chat_message
 from taskweaver.logging import TelemetryLogger
@@ -43,11 +42,6 @@ class CodeGeneratorConfig(RoleConfig):
         self.compaction_threshold = self._get_int("compaction_threshold", 10)
         self.compaction_retain_recent = self._get_int("compaction_retain_recent", 3)
         self.compaction_llm_alias = self._get_str("compaction_llm_alias", default="", required=False)
-        self.enable_auto_plugin_selection = self._get_bool(
-            "enable_auto_plugin_selection",
-            False,
-        )
-        self.auto_plugin_selection_topk = self._get_int("auto_plugin_selection_topk", 3)
 
         self.llm_alias = self._get_str("llm_alias", default="", required=False)
 
@@ -101,12 +95,6 @@ class CodeGenerator(Role):
                 logger=lambda msg: self.logger.info(msg),
                 llm_alias=self.config.compaction_llm_alias,
             )
-
-        if self.config.enable_auto_plugin_selection:
-            self.plugin_selector = PluginSelector(plugin_registry, self.llm_api)
-            self.plugin_selector.load_plugin_embeddings()
-            logger.info("Plugin embeddings loaded")
-            self.selected_plugin_pool = SelectedPluginPool()
 
         self.experience_generator = experience_generator
 
@@ -337,22 +325,6 @@ class CodeGenerator(Role):
 
         return chat_history
 
-    def select_plugins_for_prompt(
-        self,
-        query: str,
-    ) -> List[PluginEntry]:
-        selected_plugins = self.plugin_selector.plugin_select(
-            query,
-            self.config.auto_plugin_selection_topk,
-        )
-        self.selected_plugin_pool.add_selected_plugins(selected_plugins)
-        self.logger.info(f"Selected plugins: {[p.name for p in selected_plugins]}")
-        self.logger.info(
-            f"Selected plugin pool: {[p.name for p in self.selected_plugin_pool.get_plugins()]}",
-        )
-
-        return self.selected_plugin_pool.get_plugins()
-
     @tracing_decorator
     def reply(
         self,
@@ -379,11 +351,7 @@ class CodeGenerator(Role):
         query = rounds[-1].post_list[-1].message
 
         self.tracing.set_span_attribute("query", query)
-        self.tracing.set_span_attribute("enable_auto_plugin_selection", self.config.enable_auto_plugin_selection)
         self.tracing.set_span_attribute("use_experience", self.config.use_experience)
-
-        if self.config.enable_auto_plugin_selection:
-            self.plugin_pool = self.select_plugins_for_prompt(query)
 
         experience_log_path = (
             prompt_log_path.replace("prompt_log", "experience_selection_log")
@@ -444,10 +412,6 @@ class CodeGenerator(Role):
                 elif reply_type == "text":
                     post_proxy.update_message(attachment.content)
                     break
-
-        if self.config.enable_auto_plugin_selection:
-            # filter out plugins that are not used in the generated code
-            self.selected_plugin_pool.filter_unused_plugins(code=generated_code)
 
         if prompt_log_path is not None:
             self.logger.dump_prompt_file(prompt, prompt_log_path)
