@@ -10,9 +10,9 @@
 
 </div>
 
-TaskWeaver is a **code-first** agent framework for seamlessly planning and executing data analytics tasks.
+TaskWeaver+ is a **code-first** agent framework for seamlessly planning and executing data analytics tasks.
 This framework interprets user requests through code snippets and coordinates plugins (functions) to execute
-data analytics tasks in a stateful manner.
+data analytics tasks in a stateful manner. It is forked from [Microsoft TaskWeaver](https://github.com/microsoft/TaskWeaver) and independently maintained.
 
 TaskWeaver preserves both the **chat history** and the **code execution history**, including in-memory data.
 This enhances the expressiveness of the agent framework, making it ideal for processing complex data
@@ -157,11 +157,3 @@ Each module contains an `AGENTS.md` file with architecture and development detai
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Trademarks
-
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
-trademarks or logos is subject to and must follow
-[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
-Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
-Any use of third-party trademarks or logos are subject to those third-party's policies.

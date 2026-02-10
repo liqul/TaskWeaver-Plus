@@ -1,7 +1,9 @@
 import json
 import os
 import pickle
+from typing import Any, Dict, List
 
+import numpy as np
 from injector import inject
 
 from taskweaver.logging import TelemetryLogger
@@ -40,20 +42,25 @@ class DocumentRetriever(Role):
         super().__init__(config, logger, tracing, event_emitter, role_entry)
         self.enc = None
         self.chunk_id_to_index = None
-        self.vectorstore = None
-        self.embeddings = None
+        self.index = None
+        self.docstore: List[Dict[str, Any]] = []
+        self.model = None
 
     def initialize(self):
+        import faiss
         import tiktoken
-        from langchain_community.embeddings import HuggingFaceEmbeddings
-        from langchain_community.vectorstores import FAISS
+        from sentence_transformers import SentenceTransformer
 
-        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        self.vectorstore = FAISS.load_local(
-            folder_path=self.config.index_folder,
-            embeddings=self.embeddings,
-            allow_dangerous_deserialization=True,
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.index = faiss.read_index(
+            os.path.join(self.config.index_folder, "index.faiss"),
         )
+        with open(
+            os.path.join(self.config.index_folder, "index.pkl"),
+            "rb",
+        ) as f:
+            self.docstore = pickle.load(f)
+
         with open(
             os.path.join(
                 self.config.index_folder,
@@ -66,7 +73,7 @@ class DocumentRetriever(Role):
         self.enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
     def reply(self, memory: Memory, **kwargs: ...) -> Post:
-        if not self.vectorstore:
+        if not self.index:
             self.initialize()
 
         rounds = memory.get_role_rounds(
@@ -81,10 +88,18 @@ class DocumentRetriever(Role):
 
         post_proxy.update_send_to(last_post.send_from)
 
-        result = self.vectorstore.similarity_search(
-            query=last_post.message,
-            k=self.config.size,
-        )
+        # Encode query and search
+        query_vec = self.model.encode([last_post.message], convert_to_numpy=True)
+        query_vec = np.array(query_vec, dtype=np.float32)
+        _, indices = self.index.search(query_vec, self.config.size)
+
+        # Build result list matching the old langchain format
+        result = []
+        for idx in indices[0]:
+            if idx < 0 or idx >= len(self.docstore):
+                continue
+            entry = self.docstore[idx]
+            result.append(entry)
 
         expanded_chunks = self.do_expand(result, self.config.target_length)
 
@@ -98,13 +113,13 @@ class DocumentRetriever(Role):
 
         return post_proxy.end()
 
-    def do_expand(self, result, target_length):
+    def do_expand(self, result: List[Dict[str, Any]], target_length: int):
         expanded_chunks = []
         # do expansion
         for r in result:
-            source = r.metadata["source"]
-            chunk_id = r.metadata["chunk_id"]
-            content = r.page_content
+            source = r["metadata"]["source"]
+            chunk_id = r["metadata"]["chunk_id"]
+            content = r["text"]
 
             expanded_result = content
             left_chunk_id, right_chunk_id = chunk_id - 1, chunk_id + 1
@@ -114,13 +129,11 @@ class DocumentRetriever(Role):
                 current_length = len(self.enc.encode(expanded_result))
                 if f"{source}_{left_chunk_id}" in self.chunk_id_to_index:
                     chunk_ids.append(left_chunk_id)
-                    left_chunk_index = self.vectorstore.index_to_docstore_id[
-                        self.chunk_id_to_index[f"{source}_{left_chunk_id}"]
-                    ]
-                    left_chunk = self.vectorstore.docstore.search(left_chunk_index)
-                    encoded_left_chunk = self.enc.encode(left_chunk.page_content)
+                    left_idx = self.chunk_id_to_index[f"{source}_{left_chunk_id}"]
+                    left_chunk = self.docstore[left_idx]
+                    encoded_left_chunk = self.enc.encode(left_chunk["text"])
                     if len(encoded_left_chunk) + current_length < target_length:
-                        expanded_result = left_chunk.page_content + expanded_result
+                        expanded_result = left_chunk["text"] + expanded_result
                         left_chunk_id -= 1
                         current_length += len(encoded_left_chunk)
                     else:
@@ -134,13 +147,11 @@ class DocumentRetriever(Role):
 
                 if f"{source}_{right_chunk_id}" in self.chunk_id_to_index:
                     chunk_ids.append(right_chunk_id)
-                    right_chunk_index = self.vectorstore.index_to_docstore_id[
-                        self.chunk_id_to_index[f"{source}_{right_chunk_id}"]
-                    ]
-                    right_chunk = self.vectorstore.docstore.search(right_chunk_index)
-                    encoded_right_chunk = self.enc.encode(right_chunk.page_content)
+                    right_idx = self.chunk_id_to_index[f"{source}_{right_chunk_id}"]
+                    right_chunk = self.docstore[right_idx]
+                    encoded_right_chunk = self.enc.encode(right_chunk["text"])
                     if len(encoded_right_chunk) + current_length < target_length:
-                        expanded_result += right_chunk.page_content
+                        expanded_result += right_chunk["text"]
                         right_chunk_id += 1
                         current_length += len(encoded_right_chunk)
                     else:
@@ -158,9 +169,7 @@ class DocumentRetriever(Role):
             expanded_chunks.append(
                 {
                     "chunk": expanded_result,
-                    "metadata": r.metadata,
-                    # "length": current_length,
-                    # "chunk_ids": chunk_ids
+                    "metadata": r["metadata"],
                 },
             )
         return expanded_chunks

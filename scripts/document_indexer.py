@@ -8,11 +8,15 @@ import traceback
 from typing import Dict, List, Literal, Optional, Tuple
 
 try:
+    import faiss
+    import numpy as np
     import tiktoken
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-    from langchain_community.vectorstores import FAISS
+    from sentence_transformers import SentenceTransformer
 except ImportError:
-    raise ImportError("Please install the dependencies first.")
+    raise ImportError(
+        "Please install the dependencies first: "
+        "pip install faiss-cpu sentence-transformers tiktoken",
+    )
 
 
 def chunk_str_overlap(
@@ -332,13 +336,23 @@ if __name__ == "__main__":
         chunk_step=args.chunk_step,
         extensions=args.extensions,
     )
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    vectorstore = FAISS.from_texts(
-        texts=texts,
-        metadatas=metadata_list,
-        embedding=embeddings,
-    )
-    vectorstore.save_local(folder_path=args.output_path)
+    print(f"Encoding {len(texts)} chunks with SentenceTransformer...")
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    vectors = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
+    vectors = np.array(vectors, dtype=np.float32)
+
+    dim = vectors.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(vectors)
+
+    os.makedirs(args.output_path, exist_ok=True)
+    faiss.write_index(index, os.path.join(args.output_path, "index.faiss"))
+
+    # Docstore: list of dicts where position matches FAISS index position
+    docstore = [{"text": texts[i], "metadata": metadata_list[i]} for i in range(len(texts))]
+    with open(os.path.join(args.output_path, "index.pkl"), "wb") as f:
+        pickle.dump(docstore, f)
+
     with open(os.path.join(args.output_path, "chunk_id_to_index.pkl"), "wb") as f:
         pickle.dump(chunk_id_to_index, f)
-    print(f"Saved vectorstore to {args.output_path}")
+    print(f"Saved index ({len(texts)} vectors, dim={dim}) to {args.output_path}")
