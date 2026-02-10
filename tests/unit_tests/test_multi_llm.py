@@ -32,9 +32,10 @@ def test_multi_llm():
                     "llm.response_format": "json_object",
                 },
                 "llm_B": {
-                    "llm.api_type": "google_genai",
+                    "llm.api_type": "azure",
+                    "llm.api_base": "https://your-resource.openai.azure.com/",
                     "llm.api_key": "YOUR_API_KEY",
-                    "llm.model": "gemini-pro",
+                    "llm.model": "gpt-4",
                 },
             },
         },

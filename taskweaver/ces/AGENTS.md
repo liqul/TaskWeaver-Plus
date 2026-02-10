@@ -456,6 +456,66 @@ When `server_container=true`:
 - Volume: `{env_dir}` → `/app/workspace`
 - Server runs inside container with local kernel
 
+## Directory Separation (Client vs Server)
+
+The main process (client) and execution server maintain **separate directory structures**. This is critical for remote/container deployments.
+
+### Client-Side (Session class)
+
+```python
+# In taskweaver/session/session.py
+self.workspace = workspace.get_session_dir(self.session_id)  # For logs, prompts
+self.execution_cwd = os.path.join(self.workspace, "cwd")     # Initial value (local fallback)
+
+# After CES session starts:
+self.execution_cwd = self._upload_client.get_cwd()  # Updated from server response
+```
+
+The `workspace` directory stores:
+- `{session_id}.json` - Session metadata
+- `{session_id}_{round_id}.json` - Round logs
+- `planner_prompt_log_*.json` - LLM prompt logs
+- `code_generator_prompt_log_*.json` - Code generator prompt logs
+
+### Server-Side (ServerSessionManager)
+
+```python
+# In taskweaver/ces/server/session_manager.py
+session_dir = os.path.join(self.work_dir, "sessions", session_id)
+cwd = os.path.join(session_dir, "cwd")
+```
+
+The server `cwd` directory is where:
+- Uploaded files are written
+- Code is executed
+- Artifacts (charts, images) are saved
+- Files can be downloaded via HTTP
+
+### Directory Resolution Flow
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  1. Session.__init__()                                                   │
+│     └── execution_cwd = {workspace}/cwd (local fallback)                 │
+│                                                                          │
+│  2. Session._get_upload_client() [lazy, on first file upload]            │
+│     └── Calls ExecutionClient.start()                                    │
+│         └── POST /api/v1/sessions → returns {cwd: "/server/path/cwd"}    │
+│                                                                          │
+│  3. Session updates execution_cwd from server response                   │
+│     └── execution_cwd = client.get_cwd()                                 │
+│                                                                          │
+│  4. All file uploads go to server's cwd via HTTP                         │
+│     └── POST /api/v1/sessions/{id}/files                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Insight
+
+- **Local deployment**: Client and server may share the same `workspace/cwd` path
+- **Remote/container**: Paths are completely different (client: `/local/...`, server: `/container/...`)
+- **File access**: Client cannot directly read server's `cwd`; must use HTTP artifact download
+
 ## Web UI Integration
 
 The CES server integrates with the Chat Web UI when started via CLI:

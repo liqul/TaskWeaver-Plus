@@ -624,11 +624,15 @@ def test_compose_with_shared_plan():
     selected_experiences = [
         Experience(
             exp_id="exp-1",
-            experience_text="this is a test experience",
+            who=[],
+            when="test experience selection criteria",
+            what="this is a test experience",
         ),
         Experience(
             exp_id="exp-2",
-            experience_text="this is another test experience",
+            who=[],
+            when="another test experience selection criteria",
+            what="this is another test experience",
         ),
     ]
     code_generator.experiences = selected_experiences

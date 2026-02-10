@@ -5,6 +5,8 @@ from .init import init
 from .server import server
 from .util import CliContext, get_ascii_banner
 
+_tw_version: str = __import__("taskweaver").__version__
+
 
 @click.group(
     name="taskweaver",
@@ -13,7 +15,7 @@ from .util import CliContext, get_ascii_banner
     commands=[init, chat, server],
 )
 @click.pass_context
-@click.version_option(package_name="taskweaver")
+@click.version_option(version=_tw_version, prog_name="taskweaver")
 @click.option(
     "--project",
     "-p",

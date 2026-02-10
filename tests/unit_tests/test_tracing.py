@@ -47,6 +47,7 @@ def test_tracing_disabled():
 
 @pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="Test doesn't work in Github Actions.")
 def test_tracing_enabled():
+    pytest.importorskip("opentelemetry", reason="opentelemetry-sdk not installed")
     app_injector = Injector()
     app_config = AppConfigSource(
         config={
