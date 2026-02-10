@@ -201,7 +201,7 @@ class TestExecutionClientSession:
         assert client.cwd == "/tmp/work"
         mock_client.post.assert_called_once_with(
             "/api/v1/sessions",
-            json={"session_id": "test", "cwd": None},
+            json={"session_id": "test"},
         )
 
     @patch("taskweaver.ces.client.execution_client.httpx.Client")

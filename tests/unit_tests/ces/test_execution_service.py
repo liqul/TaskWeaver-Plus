@@ -420,7 +420,10 @@ class TestExecutionServiceProvider:
 
     @patch("taskweaver.ces.manager.execution_service.ServerLauncher")
     def test_get_session_client(self, mock_launcher_class: MagicMock) -> None:
-        """Test getting a session client."""
+        """Test getting a session client.
+
+        The provider no longer passes cwd to the client — the server decides its own cwd.
+        """
         mock_launcher = MagicMock()
         mock_launcher_class.return_value = mock_launcher
 
@@ -441,14 +444,14 @@ class TestExecutionServiceProvider:
         assert client.server_url == "http://localhost:8000"
         assert client.api_key == "secret"
         assert client.timeout == 120.0
-        assert client.cwd == "/custom/path"
+        assert client.cwd is None  # Server decides cwd
 
     @patch("taskweaver.ces.manager.execution_service.ServerLauncher")
-    def test_get_session_client_uses_session_dir_as_cwd(
+    def test_get_session_client_ignores_session_dir(
         self,
         mock_launcher_class: MagicMock,
     ) -> None:
-        """Test that session_dir is used as cwd when cwd not specified."""
+        """Test that session_dir is NOT used as cwd — server decides its own cwd."""
         mock_launcher = MagicMock()
         mock_launcher_class.return_value = mock_launcher
 
@@ -460,14 +463,14 @@ class TestExecutionServiceProvider:
             session_dir="/session/dir",
         )
 
-        assert client.cwd == "/session/dir"
+        assert client.cwd is None
 
     @patch("taskweaver.ces.manager.execution_service.ServerLauncher")
-    def test_get_session_client_cwd_overrides_session_dir(
+    def test_get_session_client_ignores_cwd(
         self,
         mock_launcher_class: MagicMock,
     ) -> None:
-        """Test that cwd takes precedence over session_dir."""
+        """Test that explicit cwd is NOT passed to client — server decides its own cwd."""
         mock_launcher = MagicMock()
         mock_launcher_class.return_value = mock_launcher
 
@@ -480,7 +483,7 @@ class TestExecutionServiceProvider:
             cwd="/explicit/cwd",
         )
 
-        assert client.cwd == "/explicit/cwd"
+        assert client.cwd is None
 
     @patch("taskweaver.ces.manager.execution_service.ServerLauncher")
     def test_get_session_client_auto_initializes(
