@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import subprocess
 import sys
 import warnings
@@ -77,6 +76,20 @@ def auto_evaluate(
             print(f"Pre-command failed: {command}")
             print(result.stdout)
 
+    upload_files = []
+    for data_file in data_files:
+        src = os.path.join(eval_case_dir, data_file)
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"Data file {data_file} not found in {eval_case_dir}")
+        if os.path.isfile(src):
+            upload_files.append({"name": os.path.basename(data_file), "path": src})
+        else:
+            for root, _dirs, files in os.walk(src):
+                for fname in files:
+                    fpath = os.path.join(root, fname)
+                    rel = os.path.relpath(fpath, os.path.dirname(src))
+                    upload_files.append({"name": rel, "path": fpath})
+
     tester = Tester(
         task_description=task_description,
         app_dir=app_dir,
@@ -85,18 +98,8 @@ def auto_evaluate(
         app=app,
         llm_client=llm_client,
         model_name=model_name,
+        files=upload_files if upload_files else None,
     )
-
-    # Ensure CES session is started and get the actual working directory
-    working_directory = tester.session.ensure_execution_ready()
-    for data_file in data_files:
-        src = os.path.join(eval_case_dir, data_file)
-        if not os.path.exists(src):
-            raise FileNotFoundError(f"Data file {data_file} not found in {eval_case_dir}")
-        if os.path.isfile(src):
-            shutil.copy(src, working_directory)
-        else:
-            shutil.copytree(src, os.path.join(working_directory, data_file))
 
     conversation = tester.run()
 

@@ -38,17 +38,50 @@ specific scoring criterion.
 
 You will be given:
 1. The original task description
-2. The full conversation between user and agent
+2. The full conversation between user and agent, including internal agent steps
 3. A scoring criterion to evaluate
 
+The conversation includes internal messages between the agent's components \
+(e.g., Planner -> CodeInterpreter, code generation, execution results). \
+These internal steps are part of the agent's work and MUST be considered \
+when evaluating the criterion. A criterion is met if the agent performed \
+the required action in ANY step, not just the final response to the user.
+
 Evaluate whether the conversation demonstrates that the scoring criterion has \
-been met. Consider the agent's responses, any code it executed, and any results \
-it produced.
+been met. Consider ALL internal steps, code that was generated, code that was \
+executed, function calls, and any results produced.
 
 Reply in this exact JSON format:
 {{
     "reason": "Brief explanation of why the criterion is or is not met",
     "is_hit": "yes or no"
+}}
+
+Reply ONLY with the JSON object. No other text.\
+"""
+
+TASK_COMPLETION_CHECK_PROMPT = """\
+You are checking whether an AI agent has fully completed ALL parts of a \
+multi-step task.
+
+## Original Task
+{task_description}
+
+## Agent's Response
+{agent_response}
+
+## Internal Agent Steps
+{agent_posts}
+
+Analyze whether EVERY step/request in the original task has been addressed. \
+Look at both the agent's final response AND the internal steps (code execution, \
+function calls, file operations, etc.).
+
+Reply in this exact JSON format:
+{{
+    "incomplete_steps": "List any steps from the original task that were NOT \
+completed, or 'none' if all steps are done",
+    "is_complete": "yes or no"
 }}
 
 Reply ONLY with the JSON object. No other text.\

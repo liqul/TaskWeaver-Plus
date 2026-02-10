@@ -77,9 +77,36 @@ class Judge:
         """Format conversation turns into readable text."""
         lines = []
         for turn in conversation:
-            label = "User" if turn.role == "user" else "Agent"
-            lines.append(f"{label}: {turn.message}")
+            if turn.role == "user":
+                lines.append(f"User: {turn.message}")
+            elif turn.posts:
+                lines.append(Judge._format_agent_posts(turn.posts))
+            else:
+                lines.append(f"Agent: {turn.message}")
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _format_agent_posts(posts: list) -> str:
+        parts = []
+        for post in posts:
+            header = f"[{post.send_from} -> {post.send_to}]"
+            post_lines = [header]
+            if post.message:
+                post_lines.append(post.message)
+            for att in post.attachment_list:
+                att_type = att.type.value
+                if att_type in (
+                    "reply_content",
+                    "execution_result",
+                    "execution_status",
+                    "code_error",
+                    "plan",
+                    "thought",
+                    "function",
+                ):
+                    post_lines.append(f"<{att_type}>\n{att.content}\n</{att_type}>")
+            parts.append("\n".join(post_lines))
+        return "\n\n".join(parts)
 
     def _judge_single(
         self,
