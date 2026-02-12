@@ -1,7 +1,7 @@
 # Code Execution
 
->💡TaskWeaver uses a **server-based architecture** for code execution. By default, the server auto-starts locally.
->For isolated environments, you can run the server in a Docker container by setting `execution_service.server.container` to `true`.
+>💡TaskWeaver uses a **two-server architecture** for code execution. The CES (Code Execution Service) server must be started separately.
+>For isolated environments, you can run the CES server in a Docker container.
 >Refer to [Docker Security](https://docs.docker.com/engine/security/) for better understanding of the security features of Docker.
 
 TaskWeaver is a code-first agent framework, which means that it always converts the user request into code 
@@ -13,8 +13,8 @@ and it supports many programming languages.
 
 TaskWeaver uses an HTTP-based execution server that wraps the Jupyter kernel:
 
-- **Local mode (default)**: Server auto-starts as a subprocess with full filesystem access
-- **Container mode**: Server runs in Docker for security isolation
+- **Local mode**: Start the CES server manually with `python -m taskweaver.ces.server --port 8081`
+- **Container mode**: Run the CES server in Docker for security isolation
 
 The key difference between local and container modes is that container mode executes code inside a Docker container,
 which provides a more secure environment.

@@ -156,7 +156,6 @@ async def create_session(
     try:
         session = session_manager.create_session(
             session_id=session_id,
-            cwd=request.cwd,
         )
         logger.info(
             f"Created CES session {session.session_id}, "
@@ -533,20 +532,6 @@ async def download_artifact(
 
     if ces_session_exists:
         artifact_path = session_manager.get_artifact_path(session_id, filename)
-    else:
-        # Fallback: check chat sessions for artifacts
-        try:
-            from taskweaver.chat.web.routes import chat_manager
-
-            chat_session = chat_manager.get_session(session_id)
-            if chat_session:
-                potential_path = os.path.join(chat_session.tw_session.execution_cwd, filename)
-                real_potential_path = os.path.realpath(potential_path)
-                real_cwd = os.path.realpath(chat_session.tw_session.execution_cwd)
-                if real_potential_path.startswith(real_cwd) and os.path.isfile(potential_path):
-                    artifact_path = potential_path
-        except ImportError:
-            logger.warning("download_artifact: chat_manager import failed")
 
     # Final fallback: check disk directly (session may have been stopped but files remain)
     if artifact_path is None:

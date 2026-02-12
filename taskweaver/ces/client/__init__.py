@@ -1,7 +1,7 @@
 """TaskWeaver Execution Client package.
 
 This package provides an HTTP client for connecting to the TaskWeaver
-Execution Server, as well as utilities for auto-starting the server.
+Execution Server.
 """
 
 from taskweaver.ces.client.execution_client import ExecutionClient

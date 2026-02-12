@@ -5,87 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input'
 import { chatApi } from '@/lib/api'
 import { chatStore } from '@/lib/chatStore'
-import { MarkdownContent, HighlightedCode } from '@/components/MarkdownContent'
+import { MarkdownContent, HighlightedCode, RetryImage } from '@/components/MarkdownContent'
 import type { ChatSession, ChatMessage } from '@/types'
 
-const IMAGE_URL_REGEX = /(https?:\/\/[^\s<>"]+?\.(?:png|jpg|jpeg|gif|svg|webp))(?:\s|$|[<>"'])/gi
-const ARTIFACT_URL_REGEX = /\/api\/v1\/sessions\/[^/]+\/artifacts\/[^\s<>"']+\.(?:png|jpg|jpeg|gif|svg|webp)/gi
-const BARE_IMAGE_FILENAME_REGEX = /(?:^|[\s,\[\]'"])([a-zA-Z0-9_\-]+\.(?:png|jpg|jpeg|gif|svg|webp))(?:[\s,\[\]'"]|$)/gi
-
-function renderContentWithImages(content: string, sessionId?: string): React.ReactNode {
-  const allMatches: { index: number; url: string; length: number }[] = []
-  
-  let match
-  const regex1 = new RegExp(IMAGE_URL_REGEX.source, 'gi')
-  while ((match = regex1.exec(content)) !== null) {
-    allMatches.push({ index: match.index, url: match[1] || match[0].trim(), length: match[0].length })
-  }
-  
-  const regex2 = new RegExp(ARTIFACT_URL_REGEX.source, 'gi')
-  while ((match = regex2.exec(content)) !== null) {
-    allMatches.push({ index: match.index, url: match[0], length: match[0].length })
-  }
-
-  if (sessionId) {
-    const regex3 = new RegExp(BARE_IMAGE_FILENAME_REGEX.source, 'gi')
-    while ((match = regex3.exec(content)) !== null) {
-      const filename = match[1]
-      const alreadyMatched = allMatches.some(
-        m => match!.index >= m.index && match!.index < m.index + m.length,
-      )
-      if (!alreadyMatched) {
-        allMatches.push({
-          index: match.index + match[0].indexOf(filename),
-          url: `/api/v1/sessions/${sessionId}/artifacts/${filename}`,
-          length: filename.length,
-        })
-      }
-    }
-  }
-  
-  if (allMatches.length === 0) {
-    return content
-  }
-  
-  allMatches.sort((a, b) => a.index - b.index)
-  
-  const seen = new Set<number>()
-  const uniqueMatches = allMatches.filter(m => {
-    if (seen.has(m.index)) return false
-    seen.add(m.index)
-    return true
-  })
-  
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
-  
-  uniqueMatches.forEach((m, i) => {
-    if (m.index > lastIndex) {
-      parts.push(content.slice(lastIndex, m.index))
-    }
-    parts.push(
-      <img 
-        key={`img-${i}`}
-        src={m.url} 
-        alt="Generated image" 
-        className="max-w-full h-auto rounded border my-2"
-        onError={(e) => {
-          const target = e.target as HTMLImageElement
-          target.style.display = 'none'
-        }}
-      />
-    )
-    lastIndex = m.index + m.length
-  })
-  
-  if (lastIndex < content.length) {
-    parts.push(content.slice(lastIndex))
-  }
-  
-  return <>{parts}</>
-}
-
-const ChatMessageItem = ({ message, sessionId }: { message: ChatMessage; sessionId?: string }) => {
+const ChatMessageItem = ({ message }: { message: ChatMessage }) => {
   const isUser = message.role === 'User'
   const isPlanner = message.role === 'Planner'
   const isCodeInterpreter = message.role === 'CodeInterpreter'
@@ -139,7 +62,9 @@ const ChatMessageItem = ({ message, sessionId }: { message: ChatMessage; session
                         {att.isStreaming ? (
                           <span className="text-xs text-muted-foreground animate-pulse">Loading artifacts…</span>
                         ) : (
-                          renderContentWithImages(att.content, sessionId)
+                          att.content.split('\n').filter(Boolean).map((url, i) => (
+                            <RetryImage key={i} src={url} alt={`Artifact ${i + 1}`} />
+                          ))
                         )}
                       </div>
                     ) : (
@@ -179,7 +104,8 @@ export function ChatPage() {
   const [confirmationRequest, setConfirmationRequest] = useState<{ id: string, code: string, roundId: string, postId: string } | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  
+  const [executionCwd, setExecutionCwd] = useState<string | null>(null)
+
   const wsRef = useRef<WebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const isReplayingHistoryRef = useRef<boolean>(false)
@@ -227,6 +153,7 @@ export function ChatPage() {
     }
 
     setConnectionStatus('connecting')
+    setExecutionCwd(null)
 
     const wsUrl = chatApi.getWebSocketUrl(selectedSessionId)
     const ws = new WebSocket(wsUrl)
@@ -267,6 +194,9 @@ export function ChatPage() {
     if (msg.type === 'connected') {
       isReplayingHistoryRef.current = true
       setMessages(prev => ({ ...prev, [sessionId]: [] }))
+      if (msg.execution_cwd) {
+        setExecutionCwd(msg.execution_cwd)
+      }
       return
     }
     
@@ -583,16 +513,21 @@ export function ChatPage() {
             <div className="border-b p-4 flex items-center justify-between bg-card">
                <div className="flex items-center gap-2">
                  <div className={`h-2 w-2 rounded-full ${
-                   connectionStatus === 'connected' ? 'bg-green-500' : 
+                   connectionStatus === 'connected' ? 'bg-green-500' :
                    connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
                  }`} />
                  <span className="font-mono text-sm">{selectedSessionId}</span>
+                 {executionCwd && (
+                   <span className="text-xs text-muted-foreground ml-2 truncate max-w-[400px]" title={executionCwd}>
+                     CWD: {executionCwd}
+                   </span>
+                 )}
                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 dark:bg-slate-900/50">
               {currentMessages.map((msg, idx) => (
-                <ChatMessageItem key={msg.id || idx} message={msg} sessionId={selectedSessionId ?? undefined} />
+                <ChatMessageItem key={msg.id || idx} message={msg} />
               ))}
               <div ref={messagesEndRef} />
             </div>

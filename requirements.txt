@@ -18,6 +18,12 @@ docker>=7.0.0
 # Code Execution related
 ipykernel==6.26.0
 
+# Server
+fastapi>=0.100.0
+uvicorn>=0.23.0
+websockets>=11.0
+httpx>=0.24.0
+
 pre-commit>=2.19.0
 tenacity>=8.2.2
 plotly>=5.14.1

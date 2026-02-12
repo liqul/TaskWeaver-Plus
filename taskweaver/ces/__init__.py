@@ -1,7 +1,7 @@
 """Code Execution Service package.
 
 This module provides factory functions for creating execution service managers.
-All execution goes through an HTTP server (local auto-start or remote).
+All execution goes through a separately-started HTTP server.
 """
 
 from typing import Optional
@@ -13,9 +13,9 @@ from taskweaver.ces.manager.execution_service import ExecutionServiceProvider
 
 def code_execution_service_factory(
     env_dir: str,
-    server_url: str = "http://localhost:8000",
+    server_url: str = "http://localhost:8081",
     server_api_key: Optional[str] = None,
-    server_auto_start: bool = True,
+    server_auto_start: bool = False,
     server_container: bool = False,
     server_container_image: Optional[str] = None,
     server_timeout: float = 300.0,
@@ -24,8 +24,8 @@ def code_execution_service_factory(
 ) -> Manager:
     """Factory function to create the execution service manager.
 
-    All execution uses the HTTP server architecture. By default, a local server
-    is auto-started. For remote execution, set server_url and auto_start=False.
+    All execution uses the HTTP server architecture. The CES server must be
+    started separately before using this client.
 
     Args:
         env_dir: Environment/working directory for session data.

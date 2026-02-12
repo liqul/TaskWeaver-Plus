@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from taskweaver.app.app import TaskWeaverApp
 from taskweaver.module.event_emitter import (
@@ -50,14 +50,21 @@ class ChatSessionManager:
         self._sessions: Dict[str, ChatSession] = {}
         self._app: Optional[TaskWeaverApp] = None
         self._app_dir: Optional[str] = None
+        self._server_url: Optional[str] = None
         self._lock = threading.Lock()
 
     def set_app_dir(self, app_dir: str):
         self._app_dir = app_dir
 
+    def set_server_url(self, server_url: str):
+        self._server_url = server_url
+
     def _get_app(self) -> TaskWeaverApp:
         if self._app is None:
-            self._app = TaskWeaverApp(app_dir=self._app_dir)
+            config: Dict[str, Any] = {}
+            if self._server_url:
+                config["execution_service.server.url"] = self._server_url
+            self._app = TaskWeaverApp(app_dir=self._app_dir, config=config)
         return self._app
 
     def create_session(self) -> ChatSession:
@@ -249,6 +256,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     await websocket.send_json({
         "type": "connected",
         "session_id": session_id,
+        "execution_cwd": session.tw_session.execution_cwd,
     })
     
     for chat_round in session.tw_session.memory.conversation.rounds:
@@ -426,6 +434,17 @@ async def list_chat_sessions():
     }
 
 
+@router.get("/sessions/{session_id}")
+async def get_chat_session(session_id: str):
+    session = chat_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session.session_id,
+        "execution_cwd": session.tw_session.execution_cwd,
+    }
+
+
 @router.delete("/sessions/{session_id}")
 async def delete_chat_session(session_id: str):
     if chat_manager.delete_session(session_id):
@@ -435,11 +454,39 @@ async def delete_chat_session(session_id: str):
 
 @router.get("/sessions/{session_id}/artifacts/{filename:path}")
 async def download_chat_artifact(session_id: str, filename: str):
-    """Serve artifacts (images, files) from a chat session's execution directory."""
+    """Serve artifacts from a chat session.
+
+    Proxies the request to the CES server, which owns the artifact files.
+    Falls back to local filesystem if CES server URL is not configured
+    (e.g., local process mode).
+    """
     session = chat_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Try proxying to CES server first
+    server_url = chat_manager._server_url
+    if server_url:
+        import httpx
+
+        ces_url = f"{server_url.rstrip('/')}/api/v1/sessions/{session_id}/artifacts/{filename}"
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(ces_url, timeout=30.0)
+            if resp.status_code == 200:
+                return Response(
+                    content=resp.content,
+                    media_type=resp.headers.get("content-type", "application/octet-stream"),
+                    headers={"Cache-Control": "public, max-age=3600"},
+                )
+            elif resp.status_code == 404:
+                raise HTTPException(status_code=404, detail="Artifact not found")
+            else:
+                raise HTTPException(status_code=resp.status_code, detail="CES server error")
+        except httpx.ConnectError:
+            logger.warning(f"Cannot reach CES server at {server_url}, trying local fallback")
+
+    # Fallback: serve from local filesystem (works when CES runs as local subprocess)
     artifact_path = os.path.join(session.tw_session.execution_cwd, filename)
 
     # Security: ensure the path doesn't escape the execution directory

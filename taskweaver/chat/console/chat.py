@@ -530,16 +530,11 @@ class TaskWeaverRoundUpdater(SessionEventHandlerBase, ConfirmationHandler):
 
 class TaskWeaverChatApp(SessionEventHandlerBase):
     def __init__(self, app_dir: Optional[str] = None, server_url: Optional[str] = None):
-        from taskweaver.app.app import TaskWeaverApp, _cleanup_existing_servers
+        from taskweaver.app.app import TaskWeaverApp
 
-        config = {}
+        config: Dict[str, Any] = {}
         if server_url:
             config["execution_service.server.url"] = server_url
-            config["execution_service.server.auto_start"] = False
-        else:
-            cleanup_result = _cleanup_existing_servers()
-            if cleanup_result:
-                click.secho(f"[Startup] Killed existing server (PID: {cleanup_result}) on port 8000", fg="yellow")
 
         self.app = TaskWeaverApp(app_dir=app_dir, config=config)
         self.session = self.app.get_session()
@@ -577,7 +572,8 @@ class TaskWeaverChatApp(SessionEventHandlerBase):
                 self._load_file(file_to_load)
                 return
             if lower_command == "info":
-                self._system_message(f"Session Id:{self.session.session_id}")
+                self._system_message(f"Session Id: {self.session.session_id}")
+                self._system_message(f"Execution CWD: {self.session.execution_cwd}")
                 self._system_message(f"Roles: {self.session.config.roles}")
                 return
             error_message(f"Unknown command '{msg}', please try again")

@@ -66,51 +66,56 @@ Supported LLM API types: `openai`, `azure`, `azure_ad`.
 
 ### Usage
 
-**CLI:**
-```bash
-python -m taskweaver -p ./project/
-```
+TaskWeaver uses a **two-server architecture**: a CES (Code Execution Service) server manages Jupyter kernels, and a Chat/Web server handles the UI and agent logic. They can run on the same machine or on separate machines.
 
-**Web UI:**
+**Web UI (recommended):**
 ```bash
 # Build the frontend (first time only)
 cd taskweaver/web/frontend && npm install && npm run build && cd ../../..
 
-# Start the server
-taskweaver -p ./project/ server
+# Terminal 1: Start the CES server
+python -m taskweaver.ces.server --port 8081
 
-# Open http://localhost:8000 in your browser
+# Terminal 2: Start the Chat/Web server
+taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
+
+# Open http://localhost:8082/chat in your browser
 ```
 
-**Code Execution Server + CLI (separate processes):**
+**CLI chat:**
 ```bash
-# Terminal 1: start the execution server
-taskweaver -p ./project/ server
+# Terminal 1: Start the CES server
+python -m taskweaver.ces.server --port 8081
 
-# Terminal 2: connect a chat session
-taskweaver -p ./project/ chat --server-url http://localhost:8000
+# Terminal 2: Connect a CLI chat session
+taskweaver -p ./project/ chat --server-url http://localhost:8081
 ```
 
 **As a Library:**
+
+Requires a running CES server (`python -m taskweaver.ces.server --port 8081`).
+
 ```python
 from taskweaver.app.app import TaskWeaverApp
 
-app = TaskWeaverApp(app_dir="./project/")
+app = TaskWeaverApp(app_dir="./project/", config={
+    "execution_service.server.url": "http://localhost:8081",
+})
 session = app.get_session()
 response = session.send_message("Your request here")
 ```
 
 ## Recent Changes
 
-### Client-Server Architecture for Code Execution
+### Two-Server Architecture
 
-The code execution backend has been refactored into a standalone **Code Execution Server (CES)** that communicates with the TaskWeaver agent over HTTP. The agent (Planner, CodeInterpreter) runs as the client; the Jupyter kernel runs inside the server. This separation enables three deployment modes:
+TaskWeaver uses two independent servers that can run on the same machine or separately:
 
-- **Local** (default) - Server auto-starts as a subprocess, no configuration needed
-- **Container** - Server runs in Docker for filesystem isolation
-- **Remote** - Connect to a pre-deployed server for GPU access or shared resources
+1. **CES (Code Execution Service) server** - Manages Jupyter kernels and executes code. Each session gets its own working directory under `{work_dir}/sessions/{session_id}/cwd/`. Start with `python -m taskweaver.ces.server --port 8081`.
 
-The server exposes a REST API (`/api/v1/sessions`, `/execute`, `/plugins`, `/files`, `/artifacts`) and supports SSE streaming for real-time execution output. File uploads use base64 encoding over HTTP, so the client and server can run on different machines. See [docs/remote_execution.md](docs/remote_execution.md) for details.
+2. **Chat/Web server** - Serves the frontend UI, handles WebSocket chat connections, and runs the agent logic (Planner, CodeInterpreter). Communicates with the CES server over HTTP. Proxies CES API requests and artifact downloads transparently. Start with `taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081`.
+
+The CES server exposes a REST API (`/api/v1/sessions`, `/execute`, `/plugins`, `/files`, `/artifacts`) and supports SSE streaming for real-time execution output. File uploads use base64 encoding over HTTP, so the servers can run on different machines. The Chat/Web server checks CES connectivity at startup and will refuse to start if the CES server is not reachable.
 
 ### Code Execution Confirmation
 
@@ -118,15 +123,16 @@ Before executing LLM-generated code, TaskWeaver now prompts the user for approva
 
 ### New Web UI
 
-The Chainlit-based UI has been replaced with a custom **React + TypeScript** frontend (Vite, Tailwind CSS, shadcn/ui) backed by **FastAPI WebSocket** endpoints. Features include:
+The Chainlit-based UI has been replaced with a custom **React + TypeScript** frontend (Vite, Tailwind CSS, shadcn/ui) backed by **FastAPI WebSocket** endpoints. The Web UI runs as a separate Chat/Web server that communicates with the CES server. Features include:
 
 - Real-time streaming of agent steps (planning, code generation, execution results) via WebSocket
 - Code execution confirmation dialog in the browser
 - Session management (create, list, delete, reconnect with full history replay)
-- File upload and artifact download
+- File upload and artifact download with automatic CES proxy
 - CES session admin panel
+- Execution working directory display
 
-Start with `taskweaver -p ./project/ server` and open `http://localhost:8000` in your browser.
+Start the CES server with `python -m taskweaver.ces.server --port 8081`, then start the Chat/Web server with `taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081` and open `http://localhost:8082/chat` in your browser.
 
 ### Memory Compaction Redesign
 

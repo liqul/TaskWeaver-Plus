@@ -18,16 +18,18 @@ pip install -e .
 ```
 
 ### Running TaskWeaver
+TaskWeaver uses a two-server architecture. Always start the CES server first.
+
 ```bash
-# CLI mode
-python -m taskweaver -p ./project/
+# Terminal 1: Start the CES (Code Execution Service) server
+python -m taskweaver.ces.server --port 8081
 
-# Web UI (starts server + frontend)
-python -m taskweaver -p ./project/ server --port 8000
-# Open http://localhost:8000/chat
+# Terminal 2a: Web UI
+taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
+# Open http://localhost:8082/chat
 
-# Connect CLI to running server
-python -m taskweaver -p ./project/ chat --server-url http://localhost:8000
+# Terminal 2b: CLI chat (alternative to Web UI)
+taskweaver -p ./project/ chat --server-url http://localhost:8081
 ```
 
 ### Running Tests
@@ -184,10 +186,9 @@ CES provides client-server architecture for code execution:
 - **Client**: HTTP client implementing `Client` ABC (`taskweaver/ces/client/`)
 - **Manager**: Factory providing session clients (`taskweaver/ces/manager/`)
 
-Three deployment modes:
-1. Local process (server auto-starts as subprocess)
-2. Local container (Docker with volume mapping)
-3. Remote server (connect to pre-started instance)
+Two deployment modes:
+1. Local server (start manually with `python -m taskweaver.ces.server`)
+2. Remote server (connect to pre-started instance on another machine)
 
 Key endpoints:
 - `POST /api/v1/sessions` - Create session
@@ -196,11 +197,11 @@ Key endpoints:
 - `POST /api/v1/sessions/{id}/files` - Upload file
 
 ### Web UI Architecture
-The Web UI consists of:
+The Web UI runs as a separate Chat/Web server (port 8082) that proxies CES API requests:
 
-- **Backend**: `taskweaver/chat/web/routes.py` (WebSocket + REST)
+- **Backend**: `taskweaver/chat/web/app.py` (FastAPI app), `routes.py` (WebSocket + REST), `ces_proxy.py` (CES reverse proxy)
 - **Frontend**: `taskweaver/web/frontend/` (React + Vite + TypeScript)
-- **Integration**: CES server mounts chat router via `app.include_router(chat_router)`
+- **Two-server**: Chat server handles `/api/v1/chat/*` routes directly, proxies all other `/api/v1/*` routes to the CES server
 
 WebSocket protocol handles bidirectional streaming:
 - Client sends: `send_message`, `confirm`, `upload_file`
@@ -385,7 +386,7 @@ Each major subdirectory has its own `AGENTS.md` file with detailed component doc
 
 ### Common Gotchas
 - CodeInterpreter has 3 variants (full, cli-only, plugin-only) - make sure you're editing the right one
-- CES server can auto-start, run in container, or connect to remote - check config
+- CES server must be started separately before using CLI chat or Web UI
 - Memory model uses dataclasses with `to_dict()`/`from_dict()` for serialization
 - Attachment types are strongly typed via `AttachmentType` enum
 - Plugin loading happens in CES kernel via IPython magic commands

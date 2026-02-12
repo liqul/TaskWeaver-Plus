@@ -30,8 +30,7 @@ _tw_version: str = __import__("taskweaver").__version__
 )
 @click.option(
     "--server-url",
-    help="URL of the Code Execution Server (e.g., http://localhost:8000). "
-    "If provided, disables auto-start and connects to existing server.",
+    help="URL of the Code Execution Server (e.g., http://localhost:8081).",
     type=str,
     required=False,
     default=None,

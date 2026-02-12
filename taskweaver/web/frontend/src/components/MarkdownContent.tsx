@@ -54,7 +54,7 @@ export function HighlightedCode({ code, language }: { code: string, language?: s
 const MAX_IMG_RETRIES = 3
 const RETRY_DELAYS = [500, 1000, 2000]
 
-function RetryImage({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement>) {
+export function RetryImage({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement>) {
   const [hidden, setHidden] = useState(false)
   const retryCount = useRef(0)
   const imgRef = useRef<HTMLImageElement>(null)

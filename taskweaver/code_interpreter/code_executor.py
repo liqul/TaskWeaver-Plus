@@ -14,21 +14,22 @@ from taskweaver.utils import pretty_repr
 TRUNCATE_CHAR_LENGTH = 1500
 
 
-def get_artifact_uri(file_name: str, download_url: str) -> str:
+def get_artifact_uri(file_name: str, download_url: str, session_id: str = "") -> str:
     """Get the URI for an artifact.
 
-    Since all execution goes through the HTTP server, artifacts always have
-    download URLs available.
+    Returns a chat-server-relative URL so the browser can fetch the artifact
+    through the chat server's proxy route.
 
     Args:
-        file_name: The artifact file name (used as fallback).
-        download_url: The HTTP download URL from the server.
+        file_name: The artifact file name.
+        download_url: The HTTP download URL from the CES server (ignored).
+        session_id: The session ID for building the chat-relative URL.
 
     Returns:
-        The download URL, or a placeholder if not available.
+        A chat-server-relative URL for the artifact.
     """
-    if download_url:
-        return download_url
+    if session_id and file_name:
+        return f"/api/v1/chat/sessions/{session_id}/artifacts/{file_name}"
     # Fallback - should not happen in normal operation
     return f"artifact://{file_name}"
 
@@ -248,7 +249,7 @@ class CodeExecutor:
             lines.extend(
                 [
                     f"- type: {a.type} ; uri: "
-                    + get_artifact_uri(a.file_name, a.download_url)
+                    + get_artifact_uri(a.file_name, a.download_url, self.session_id)
                     + f" ; description: {a.preview}"
                     for a in result.artifact
                 ],

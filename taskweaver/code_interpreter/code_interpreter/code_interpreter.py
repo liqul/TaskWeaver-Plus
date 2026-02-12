@@ -3,7 +3,7 @@ from typing import Dict, Literal, Optional
 
 from injector import inject
 
-from taskweaver.code_interpreter.code_executor import CodeExecutor, get_artifact_uri
+from taskweaver.code_interpreter.code_executor import CodeExecutor
 from taskweaver.code_interpreter.code_interpreter import CodeGenerator
 from taskweaver.code_interpreter.code_verification import code_snippet_verification, format_code_correction_message
 from taskweaver.code_interpreter.interpreter import Interpreter
@@ -308,8 +308,12 @@ class CodeInterpreter(Role, Interpreter):
             result=code_output,
         )
 
-        # add artifact paths
-        artifact_uris = [get_artifact_uri(a.file_name, a.download_url) for a in exec_result.artifact]
+        # add artifact paths (use chat-server-relative URLs so the browser can fetch them)
+        artifact_uris = [
+            f"/api/v1/chat/sessions/{self.executor.session_id}/artifacts/{a.file_name}"
+            for a in exec_result.artifact
+            if a.file_name
+        ]
         if artifact_uris:
             post_proxy.update_attachment(
                 "\n".join(artifact_uris),

@@ -47,7 +47,7 @@ def main() -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.getenv("TASKWEAVER_SERVER_PORT", "8000")),
+        default=int(os.getenv("TASKWEAVER_SERVER_PORT", "8081")),
         help="Port to bind to",
     )
 
@@ -124,6 +124,23 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # Detect WebSocket library explicitly to avoid uvicorn auto-detection failures
+    ws_impl: str = "auto"
+    try:
+        import websockets  # noqa: F401
+
+        ws_impl = "websockets"
+    except ImportError:
+        try:
+            import wsproto  # noqa: F401
+
+            ws_impl = "wsproto"
+        except ImportError:
+            logger.warning(
+                "No WebSocket library found. WebSocket endpoints will not work. "
+                "Install one with: pip install websockets",
+            )
+
     # Run the server
     uvicorn.run(
         "taskweaver.ces.server.app:app",
@@ -131,6 +148,7 @@ def main() -> None:
         port=args.port,
         reload=args.reload,
         log_level=args.log_level,
+        ws=ws_impl,
     )
 
 
