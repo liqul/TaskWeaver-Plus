@@ -377,7 +377,12 @@ class Session:
             with open(path, "rb") as f:
                 file_content = f.read()
         elif content is not None:
-            file_content = content
+            if isinstance(content, str):
+                import base64
+
+                file_content = base64.b64decode(content)
+            else:
+                file_content = content
         else:
             self.tracing.set_span_status("ERROR", "path or file_content must be provided")
             raise ValueError("path or file_content must be provided")

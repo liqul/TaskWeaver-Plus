@@ -206,14 +206,12 @@ def artifact_from_execution(artifact: Any) -> ArtifactModel:
 def execution_result_to_response(
     result: Any,
     session_id: str,
-    base_url: str = "",
 ) -> ExecuteCodeResponse:
     """Convert an ExecutionResult to ExecuteCodeResponse.
 
     Args:
         result: ExecutionResult from Environment.execute_code()
         session_id: Session identifier for constructing download URLs
-        base_url: Base URL for constructing artifact download URLs
 
     Returns:
         ExecuteCodeResponse model
@@ -224,7 +222,7 @@ def execution_result_to_response(
         # Always set download URL for artifacts with file_name
         # The session manager saves inline artifacts to disk, so all artifacts should have file_name
         if art.file_name:
-            artifact_model.download_url = f"{base_url}/api/v1/sessions/{session_id}/artifacts/{art.file_name}"
+            artifact_model.download_url = f"/api/v1/sessions/{session_id}/artifacts/{art.file_name}"
         artifacts.append(artifact_model)
 
     return ExecuteCodeResponse(

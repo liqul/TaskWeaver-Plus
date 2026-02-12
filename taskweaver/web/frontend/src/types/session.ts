@@ -3,14 +3,14 @@ export interface SessionInfo {
   created_at: string
   last_activity: string | null
   execution_count: number
-  status: 'active' | 'idle' | 'stopped'
-  plugins: string[]
+  status: 'running' | 'stopped'
+  loaded_plugins: string[]
   cwd: string
 }
 
 export interface SessionListResponse {
   sessions: SessionInfo[]
-  total: number
+  total_count: number
 }
 
 export interface SessionCreateResponse {

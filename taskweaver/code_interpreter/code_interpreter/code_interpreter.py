@@ -3,7 +3,7 @@ from typing import Dict, Literal, Optional
 
 from injector import inject
 
-from taskweaver.code_interpreter.code_executor import CodeExecutor
+from taskweaver.code_interpreter.code_executor import CodeExecutor, get_artifact_uri
 from taskweaver.code_interpreter.code_interpreter import CodeGenerator
 from taskweaver.code_interpreter.code_verification import code_snippet_verification, format_code_correction_message
 from taskweaver.code_interpreter.interpreter import Interpreter
@@ -309,10 +309,12 @@ class CodeInterpreter(Role, Interpreter):
         )
 
         # add artifact paths
-        post_proxy.update_attachment(
-            [a.file_name for a in exec_result.artifact],
-            AttachmentType.artifact_paths,
-        )
+        artifact_uris = [get_artifact_uri(a.file_name, a.download_url) for a in exec_result.artifact]
+        if artifact_uris:
+            post_proxy.update_attachment(
+                "\n".join(artifact_uris),
+                AttachmentType.artifact_paths,
+            )
 
         post_proxy.update_message(
             self.executor.format_code_output(

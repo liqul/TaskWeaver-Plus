@@ -311,10 +311,8 @@ class ServerSessionManager:
                     with open(file_path, "w", encoding="utf-8") as f:
                         f.write(artifact.file_content)
 
-                # Update artifact with the file_name so download URL can be constructed
                 artifact.file_name = file_name
                 artifact.original_name = file_name
-                logger.debug(f"Saved inline artifact to {file_path}")
 
             except Exception as e:
                 logger.warning(f"Failed to save inline artifact {artifact.name}: {e}")
@@ -354,12 +352,10 @@ class ServerSessionManager:
         if session is None:
             return None
 
-        # Artifacts are typically in the cwd directory
         artifact_path = os.path.join(session.cwd, filename)
         if os.path.isfile(artifact_path):
             return artifact_path
 
-        # Also check session_dir/cwd
         artifact_path = os.path.join(session.session_dir, "cwd", filename)
         if os.path.isfile(artifact_path):
             return artifact_path
