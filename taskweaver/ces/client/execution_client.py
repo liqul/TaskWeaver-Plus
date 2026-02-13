@@ -35,7 +35,7 @@ class ExecutionClient(Client):
     def __init__(
         self,
         session_id: str,
-        server_url: str = "http://localhost:8000",
+        server_url: str = "http://localhost:8081",
         api_key: Optional[str] = None,
         timeout: float = 300.0,
         cwd: Optional[str] = None,
@@ -140,6 +140,12 @@ class ExecutionClient(Client):
             self.cwd = result.get("cwd", self.cwd)
             self._started = True
             logger.info(f"Started session {self.session_id} on {self.server_url}")
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise ExecutionClientError(
+                f"Cannot connect to CES server at {self.server_url}. "
+                f"Start the server first with: python -m taskweaver.ces.server --port <port>\n"
+                f"Details: {e}",
+            )
         except ExecutionClientError as e:
             if e.status_code == 409:
                 # Session already exists, consider it started

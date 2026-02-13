@@ -74,11 +74,11 @@ flake8 --config=.linters/tox.ini taskweaver/
 python -m taskweaver -p ./project/
 
 # Start server with Web UI
-python -m taskweaver -p ./project/ server --port 8000
-# Then open http://localhost:8000/chat in your browser
+python -m taskweaver -p ./project/ server --port 8081
+# Then open http://localhost:8081/chat in your browser
 
 # In another terminal, connect to running server (CLI mode)
-python -m taskweaver -p ./project/ chat --server-url http://localhost:8000
+python -m taskweaver -p ./project/ chat --server-url http://localhost:8081
 
 # As a module
 python -m taskweaver

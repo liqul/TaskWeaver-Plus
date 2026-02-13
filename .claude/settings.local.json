@@ -19,7 +19,15 @@
       "Bash(\"C:\\\\Users\\\\liqli\\\\AppData\\\\Local\\\\miniconda3\\\\envs\\\\taskweaver\\\\python.exe\" -m pytest tests/unit_tests -v -x)",
       "Bash(pip show:*)",
       "Bash(C:UsersliqliAppDataLocalminiconda3envstaskweaverpython.exe -m pytest tests/unit_tests -v)",
-      "Bash(cmd /c \"conda activate taskweaver && pytest tests/unit_tests -v\")"
+      "Bash(cmd /c \"conda activate taskweaver && pytest tests/unit_tests -v\")",
+      "Bash(dir:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(powershell:*)",
+      "Bash(del \"C:\\\\Users\\\\liqli\\\\code\\\\TaskWeaverFork\\\\taskweaver\\\\web\\\\frontend\\\\src\\\\pages\\\\SessionsPage.tsx\")",
+      "Bash(del \"C:\\\\Users\\\\liqli\\\\code\\\\TaskWeaverFork\\\\taskweaver\\\\web\\\\frontend\\\\src\\\\types\\\\session.ts\")",
+      "Bash(del \"C:\\\\Users\\\\liqli\\\\code\\\\TaskWeaverFork\\\\taskweaver\\\\web\\\\frontend\\\\src\\\\types\\\\api.ts\")"
     ]
   }
 }

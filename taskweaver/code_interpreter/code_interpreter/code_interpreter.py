@@ -308,11 +308,17 @@ class CodeInterpreter(Role, Interpreter):
             result=code_output,
         )
 
-        # add artifact paths
-        post_proxy.update_attachment(
-            [a.file_name for a in exec_result.artifact],
-            AttachmentType.artifact_paths,
-        )
+        # add artifact paths (use chat-server-relative URLs so the browser can fetch them)
+        artifact_uris = [
+            f"/api/v1/chat/sessions/{self.executor.session_id}/artifacts/{a.file_name}"
+            for a in exec_result.artifact
+            if a.file_name
+        ]
+        if artifact_uris:
+            post_proxy.update_attachment(
+                "\n".join(artifact_uris),
+                AttachmentType.artifact_paths,
+            )
 
         post_proxy.update_message(
             self.executor.format_code_output(

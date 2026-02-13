@@ -6,9 +6,9 @@ TaskWeaver uses a **server-based architecture** for code execution, providing se
 
 The execution server provides an HTTP API that wraps TaskWeaver's Jupyter kernel:
 
-- **Local mode**: Server auto-starts as a subprocess (default)
-- **Container mode**: Server runs in Docker for isolation
-- **Remote mode**: Connect to a pre-deployed server for GPU access or shared resources
+- **Local mode**: Start the CES server manually on the same machine
+- **Container mode**: Run the CES server in Docker for isolation
+- **Remote mode**: Connect to a pre-deployed CES server for GPU access or shared resources
 
 ```
 ┌─────────────────────┐         ┌─────────────────────────────────┐
@@ -22,12 +22,19 @@ The execution server provides an HTTP API that wraps TaskWeaver's Jupyter kernel
 
 ## Quick Start
 
-### Default Configuration (Local Auto-Start)
+### Local Server
 
-No configuration needed. TaskWeaver automatically starts a local execution server:
+Start the CES server manually, then connect TaskWeaver:
 
 ```bash
-python -m taskweaver -p ./project/
+# Terminal 1: Start the CES server
+python -m taskweaver.ces.server --port 8081
+
+# Terminal 2: Start the Chat/Web server
+taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
+
+# Or use CLI chat
+taskweaver -p ./project/ chat --server-url http://localhost:8081
 ```
 
 ### Container Mode
@@ -46,9 +53,8 @@ Connect to a pre-deployed execution server:
 
 ```json
 {
-  "execution.server.url": "http://192.168.1.100:8000",
-  "execution.server.api_key": "your-secret-key",
-  "execution.server.auto_start": false
+  "execution_service.server.url": "http://192.168.1.100:8081",
+  "execution_service.server.api_key": "your-secret-key"
 }
 ```
 
@@ -56,14 +62,9 @@ Connect to a pre-deployed execution server:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `execution.server.url` | string | `"http://localhost:8000"` | Server URL |
-| `execution.server.api_key` | string | `""` | API key for authentication |
-| `execution.server.auto_start` | bool | `true` | Auto-start server if not running |
-| `execution.server.container` | bool | `false` | Run server in Docker container |
-| `execution.server.container_image` | string | `"taskweavercontainers/taskweaver-executor:latest"` | Docker image |
-| `execution.server.host` | string | `"localhost"` | Server bind host |
-| `execution.server.port` | int | `8000` | Server bind port |
-| `execution.server.timeout` | int | `300` | Request timeout (seconds) |
+| `execution_service.server.url` | string | `"http://localhost:8081"` | Server URL |
+| `execution_service.server.api_key` | string | `""` | API key for authentication |
+| `execution_service.server.timeout` | int | `300` | Request timeout (seconds) |
 
 ## Deployment Options
 
@@ -72,16 +73,10 @@ Connect to a pre-deployed execution server:
 Best for development and single-user scenarios:
 
 ```bash
-# TaskWeaver auto-starts the server - no manual steps needed
-python -m taskweaver -p ./project/
-```
-
-Or start the server manually:
-
-```bash
+# Start the CES server
 python -m taskweaver.ces.server \
     --host localhost \
-    --port 8000 \
+    --port 8081 \
     --work-dir ./workspace
 ```
 
@@ -95,7 +90,7 @@ docker build -f Dockerfile.executor -t taskweaver-executor:latest .
 
 # Run the container
 docker run -d \
-    -p 8000:8000 \
+    -p 8081:8081 \
     -v $(pwd)/workspace:/app/workspace \
     -e TASKWEAVER_SERVER_API_KEY=your-secret-key \
     taskweaver-executor:latest
@@ -129,9 +124,8 @@ docker-compose up -d executor
 
 ```json
 {
-  "execution.server.url": "http://your-server:8000",
-  "execution.server.api_key": "your-secret-key",
-  "execution.server.auto_start": false
+  "execution_service.server.url": "http://your-server:8081",
+  "execution_service.server.api_key": "your-secret-key"
 }
 ```
 
@@ -157,13 +151,13 @@ The execution server exposes a REST API at `/api/v1/`:
 
 ```bash
 # Create a session
-curl -X POST http://localhost:8000/api/v1/sessions \
+curl -X POST http://localhost:8081/api/v1/sessions \
     -H "Content-Type: application/json" \
     -H "X-API-Key: your-key" \
     -d '{"session_id": "my-session"}'
 
 # Execute code
-curl -X POST http://localhost:8000/api/v1/sessions/my-session/execute \
+curl -X POST http://localhost:8081/api/v1/sessions/my-session/execute \
     -H "Content-Type: application/json" \
     -H "X-API-Key: your-key" \
     -d '{
@@ -176,13 +170,13 @@ curl -X POST http://localhost:8000/api/v1/sessions/my-session/execute \
 
 ```bash
 # Execute with streaming
-curl -X POST http://localhost:8000/api/v1/sessions/my-session/execute \
+curl -X POST http://localhost:8081/api/v1/sessions/my-session/execute \
     -H "Content-Type: application/json" \
     -H "X-API-Key: your-key" \
     -d '{"exec_id": "exec-002", "code": "for i in range(5): print(i)", "stream": true}'
 
 # Connect to SSE stream
-curl -N http://localhost:8000/api/v1/sessions/my-session/execute/exec-002/stream \
+curl -N http://localhost:8081/api/v1/sessions/my-session/execute/exec-002/stream \
     -H "X-API-Key: your-key"
 ```
 
@@ -224,7 +218,7 @@ Or manually:
 ```bash
 docker run -d \
     --gpus all \
-    -p 8000:8000 \
+    -p 8081:8081 \
     -v $(pwd)/workspace:/app/workspace \
     -e TASKWEAVER_SERVER_API_KEY=your-key \
     taskweaver-executor:latest
@@ -234,9 +228,9 @@ docker run -d \
 
 ### Server Won't Start
 
-1. **Port in use**: Check if port 8000 is available
+1. **Port in use**: Check if port 8081 is available
    ```bash
-   lsof -i :8000
+   lsof -i :8081
    ```
 
 2. **Missing dependencies**: Install required packages
@@ -250,10 +244,10 @@ docker run -d \
 
 1. **Server not running**: Start the server manually to see errors
    ```bash
-   python -m taskweaver.ces.server --host 0.0.0.0 --port 8000
+   python -m taskweaver.ces.server --host 0.0.0.0 --port 8081
    ```
 
-2. **Firewall blocking**: Check firewall rules for port 8000
+2. **Firewall blocking**: Check firewall rules for port 8081
 
 3. **Wrong URL**: Verify `execution.server.url` in configuration
 
@@ -283,7 +277,7 @@ docker run -d \
 ### Health Check
 
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8081/api/v1/health
 ```
 
 Response:
@@ -298,7 +292,7 @@ Response:
 ### Session Info
 
 ```bash
-curl http://localhost:8000/api/v1/sessions/my-session \
+curl http://localhost:8081/api/v1/sessions/my-session \
     -H "X-API-Key: your-key"
 ```
 

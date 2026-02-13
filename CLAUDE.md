@@ -18,16 +18,17 @@ pip install -e .
 ```
 
 ### Running TaskWeaver
+TaskWeaver uses a two-server architecture. Each server serves its own frontend. Always start the CES server first.
+
 ```bash
-# CLI mode
-python -m taskweaver -p ./project/
+# Terminal 1: Start the CES server (Sessions UI at http://localhost:8081/)
+python -m taskweaver.ces.server --port 8081
 
-# Web UI (starts server + frontend)
-python -m taskweaver -p ./project/ server --port 8000
-# Open http://localhost:8000/chat
+# Terminal 2a: Chat/Web server (Chat UI at http://localhost:8082/chat)
+taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
 
-# Connect CLI to running server
-python -m taskweaver -p ./project/ chat --server-url http://localhost:8000
+# Terminal 2b: CLI chat (alternative to Web UI)
+taskweaver -p ./project/ chat --server-url http://localhost:8081
 ```
 
 ### Running Tests
@@ -184,10 +185,9 @@ CES provides client-server architecture for code execution:
 - **Client**: HTTP client implementing `Client` ABC (`taskweaver/ces/client/`)
 - **Manager**: Factory providing session clients (`taskweaver/ces/manager/`)
 
-Three deployment modes:
-1. Local process (server auto-starts as subprocess)
-2. Local container (Docker with volume mapping)
-3. Remote server (connect to pre-started instance)
+Two deployment modes:
+1. Local server (start manually with `python -m taskweaver.ces.server`)
+2. Remote server (connect to pre-started instance on another machine)
 
 Key endpoints:
 - `POST /api/v1/sessions` - Create session
@@ -196,13 +196,18 @@ Key endpoints:
 - `POST /api/v1/sessions/{id}/files` - Upload file
 
 ### Web UI Architecture
-The Web UI consists of:
+Each server serves its own dedicated frontend:
 
-- **Backend**: `taskweaver/chat/web/routes.py` (WebSocket + REST)
-- **Frontend**: `taskweaver/web/frontend/` (React + Vite + TypeScript)
-- **Integration**: CES server mounts chat router via `app.include_router(chat_router)`
+- **CES server (8081)** → Sessions UI at `http://localhost:8081/`
+  - Backend: `taskweaver/ces/server/app.py`
+  - Frontend: `taskweaver/ces/web/frontend/` (React + Vite + TypeScript)
+  - Manages Jupyter kernel sessions and direct code execution
+- **Chat server (8082)** → Chat UI at `http://localhost:8082/chat`
+  - Backend: `taskweaver/chat/web/app.py` (FastAPI app), `routes.py` (WebSocket + REST)
+  - Frontend: `taskweaver/web/frontend/` (React + Vite + TypeScript)
+  - Handles chat WebSocket connections and agent logic
 
-WebSocket protocol handles bidirectional streaming:
+WebSocket protocol handles bidirectional streaming (Chat server):
 - Client sends: `send_message`, `confirm`, `upload_file`
 - Server sends: `message_update`, `attachment_start`, `confirm_request`, etc.
 
@@ -385,7 +390,7 @@ Each major subdirectory has its own `AGENTS.md` file with detailed component doc
 
 ### Common Gotchas
 - CodeInterpreter has 3 variants (full, cli-only, plugin-only) - make sure you're editing the right one
-- CES server can auto-start, run in container, or connect to remote - check config
+- CES server must be started separately before using CLI chat or Web UI
 - Memory model uses dataclasses with `to_dict()`/`from_dict()` for serialization
 - Attachment types are strongly typed via `AttachmentType` enum
 - Plugin loading happens in CES kernel via IPython magic commands
@@ -399,17 +404,22 @@ When execution server runs remotely or in container, use the file upload API:
 4. Uploaded files are then accessible in code execution
 
 ### Frontend Development
-The React frontend is in `taskweaver/web/frontend/`:
-- Built with Vite + TypeScript + Tailwind CSS
-- Uses shadcn/ui component library
-- Build output served by FastAPI at `/chat` route
+There are two separate React frontends:
+
+**Chat frontend** (`taskweaver/web/frontend/`):
+- Served by the Chat server at `/chat`
+- Built with Vite + TypeScript + Tailwind CSS + shadcn/ui
 - WebSocket connection handles real-time streaming
 
-To rebuild frontend:
+**CES Sessions frontend** (`taskweaver/ces/web/frontend/`):
+- Served by the CES server at `/`
+- Built with Vite + TypeScript + Tailwind CSS + shadcn/ui
+- Manages Jupyter kernel sessions and direct code execution
+
+To rebuild frontends:
 ```bash
-cd taskweaver/web/frontend
-npm install
-npm run build
+cd taskweaver/ces/web/frontend && npm install && npm run build && cd ../../../..
+cd taskweaver/web/frontend && npm install && npm run build && cd ../../..
 ```
 
 ### Flake8 Ignores

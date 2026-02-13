@@ -359,14 +359,13 @@ class TestUtilityFunctions:
         response = execution_result_to_response(
             mock_result,
             "session-001",
-            base_url="http://localhost:8000",
         )
 
         assert len(response.artifact) == 1
         assert response.artifact[0].name == "chart"
-        # Large artifact should have download URL
+        # Artifact should have relative download URL (browser resolves against its origin)
         assert response.artifact[0].download_url == (
-            "http://localhost:8000/api/v1/sessions/session-001/artifacts/chart_001.png"
+            "/api/v1/sessions/session-001/artifacts/chart_001.png"
         )
 
     def test_execution_result_to_response_failure(self) -> None:

@@ -29,7 +29,7 @@ export function SessionsPage() {
   const [codeBySession, setCodeBySession] = useState<Record<string, string>>({})
   const [executingSessionIds, setExecutingSessionIds] = useState<Set<string>>(new Set())
   const [historyBySession, setHistoryBySession] = useState<SessionHistoryMap>({})
-  
+
   const eventSourceRef = useRef<Map<string, EventSource>>(new Map())
 
   const currentHistory = selectedSession ? (historyBySession[selectedSession.session_id] || []) : []
@@ -158,7 +158,7 @@ export function SessionsPage() {
 
     try {
       const streamResponse = await api.executeCode(sessionId, execId, code, true)
-      
+
       if ('stream_url' in streamResponse) {
         const response = streamResponse as ExecuteStreamResponse
         const eventSource = new EventSource(response.stream_url)

@@ -35,7 +35,7 @@ class ServerLauncher:
     def __init__(
         self,
         host: str = "localhost",
-        port: int = 8000,
+        port: int = 8081,
         api_key: Optional[str] = None,
         work_dir: Optional[str] = None,
         container: bool = False,

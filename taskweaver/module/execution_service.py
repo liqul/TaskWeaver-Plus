@@ -19,7 +19,7 @@ class ExecutionServiceConfig(ModuleConfig):
         # Server configuration
         self.server_url = self._get_str(
             "server.url",
-            "http://localhost:8000",
+            "http://localhost:8081",
         )
         self.server_api_key = self._get_str(
             "server.api_key",

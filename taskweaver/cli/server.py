@@ -1,10 +1,36 @@
-"""Server subcommand for starting the Code Execution Server."""
+"""Server subcommand for starting the TaskWeaver Chat/Web server.
+
+This starts the chat/web server that serves the frontend UI and handles
+WebSocket chat connections. It uses a separate CES (Code Execution Service)
+server for code execution.
+
+Usage:
+    1. Start the CES server first:
+       python -m taskweaver.ces.server --port 8081
+
+    2. Start the chat/web server:
+       taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
+"""
 
 import os
 
 import click
 
 from taskweaver.cli.util import CliContext, require_workspace
+
+
+def _check_ces_health(ces_url: str) -> bool:
+    """Check if the CES server is reachable and healthy."""
+    import urllib.request
+    import urllib.error
+
+    health_url = f"{ces_url.rstrip('/')}/api/v1/health"
+    try:
+        req = urllib.request.Request(health_url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
 
 
 @click.command()
@@ -20,13 +46,13 @@ from taskweaver.cli.util import CliContext, require_workspace
     "--port",
     type=int,
     default=None,
-    help="Port to bind to (default: 8000)",
+    help="Port to bind to (default: 8082)",
 )
 @click.option(
-    "--api-key",
+    "--ces-url",
     type=str,
     default=None,
-    help="API key for authentication (optional for localhost)",
+    help="URL of the CES server (default: http://localhost:8081)",
 )
 @click.option(
     "--log-level",
@@ -44,19 +70,22 @@ def server(
     ctx: click.Context,
     host: str,
     port: int,
-    api_key: str,
+    ces_url: str,
     log_level: str,
     reload: bool,
 ):
-    """Start the Code Execution Server.
+    """Start the TaskWeaver Chat/Web server.
 
-    The server handles code execution requests from TaskWeaver sessions.
-    Start this server first, then run 'taskweaver chat' in another terminal.
+    This server serves the web UI and handles chat sessions. It requires
+    a CES (Code Execution Service) server to be running for code execution.
 
     \b
     Example:
-        taskweaver -p ./project server --port 8000
-        taskweaver -p ./project chat --server-url http://localhost:8000
+        # Start CES server first
+        python -m taskweaver.ces.server --port 8081
+
+        # Then start the chat/web server
+        taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
     """
     ctx_obj: CliContext = ctx.obj
     workspace = ctx_obj.workspace
@@ -74,39 +103,42 @@ def server(
     def get_config(key: str, default):
         return config_src.json_file_store.get(key, default)
 
-    effective_host = host or get_config("execution_service.server.host", "localhost")
-    effective_port = port or get_config("execution_service.server.port", 8000)
-    effective_api_key = api_key or get_config("execution_service.server.api_key", None)
-    work_dir = get_config(
-        "execution_service.env_dir",
-        os.path.join(workspace, "env"),
+    effective_host = host or get_config("chat.server.host", "localhost")
+    effective_port = port or get_config("chat.server.port", 8082)
+    effective_ces_url = ces_url or get_config(
+        "execution_service.server.url",
+        "http://localhost:8081",
     )
 
-    os.makedirs(work_dir, exist_ok=True)
-
-    os.environ["TASKWEAVER_SERVER_HOST"] = effective_host
-    os.environ["TASKWEAVER_SERVER_PORT"] = str(effective_port)
-    os.environ["TASKWEAVER_SERVER_WORK_DIR"] = work_dir
     os.environ["TASKWEAVER_APP_DIR"] = workspace
-    if effective_api_key:
-        os.environ["TASKWEAVER_SERVER_API_KEY"] = effective_api_key
+    os.environ["TASKWEAVER_CES_URL"] = effective_ces_url
+
+    # Check CES server connectivity before starting
+    click.echo()
+    click.echo(f"Checking CES server at {effective_ces_url} ...")
+    ces_healthy = _check_ces_health(effective_ces_url)
+    if not ces_healthy:
+        click.secho(
+            f"Error: Cannot connect to CES server at {effective_ces_url}",
+            fg="red",
+        )
+        click.echo()
+        click.echo("Please start the CES server first:")
+        click.echo(f"  python -m taskweaver.ces.server --port {effective_ces_url.rsplit(':', 1)[-1]}")
+        raise SystemExit(1)
+    click.secho("CES server is healthy.", fg="green")
 
     click.echo()
     click.echo("=" * 60)
-    click.echo("  TaskWeaver Code Execution Server")
+    click.echo("  TaskWeaver Chat/Web Server")
     click.echo("=" * 60)
-    click.echo(f"  Project:   {ctx_obj.workspace}")
-    click.echo(f"  Host:      {effective_host}")
-    click.echo(f"  Port:      {effective_port}")
-    click.echo(f"  URL:       http://{effective_host}:{effective_port}")
-    click.echo(f"  Web UI:    http://{effective_host}:{effective_port}/")
-    click.echo(f"  Health:    http://{effective_host}:{effective_port}/api/v1/health")
-    click.echo(f"  Work Dir:  {work_dir}")
-    click.echo(f"  API Key:   {'configured' if effective_api_key else 'not required (localhost)'}")
+    click.echo(f"  Project:      {ctx_obj.workspace}")
+    click.echo(f"  Host:         {effective_host}")
+    click.echo(f"  Port:         {effective_port}")
+    click.echo(f"  Chat UI:      http://{effective_host}:{effective_port}/chat")
+    click.echo(f"  Sessions UI:  Served by CES at {effective_ces_url}/")
+    click.echo(f"  CES Server:   {effective_ces_url}")
     click.echo("=" * 60)
-    click.echo()
-    click.echo("To connect a chat session, run in another terminal:")
-    click.echo(f"  taskweaver -p {ctx_obj.workspace} chat --server-url http://{effective_host}:{effective_port}")
     click.echo()
 
     try:
@@ -127,10 +159,28 @@ def server(
         )
         raise SystemExit(1)
 
+    try:
+        import websockets  # noqa: F401
+
+        ws_impl = "websockets"
+    except ImportError:
+        try:
+            import wsproto  # noqa: F401
+
+            ws_impl = "wsproto"
+        except ImportError:
+            click.secho(
+                "Error: a WebSocket library is required. "
+                "Please install one with: pip install websockets",
+                fg="red",
+            )
+            raise SystemExit(1)
+
     uvicorn.run(
-        "taskweaver.ces.server.app:app",
+        "taskweaver.chat.web.app:app",
         host=effective_host,
         port=effective_port,
         reload=reload,
         log_level=log_level,
+        ws=ws_impl,
     )

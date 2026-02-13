@@ -134,9 +134,9 @@ class ExecutionServiceProvider(Manager):
 
     def __init__(
         self,
-        server_url: str = "http://localhost:8000",
+        server_url: str = "http://localhost:8081",
         api_key: Optional[str] = None,
-        auto_start: bool = True,
+        auto_start: bool = False,
         container: bool = False,
         container_image: Optional[str] = None,
         work_dir: Optional[str] = None,
@@ -175,7 +175,7 @@ class ExecutionServiceProvider(Manager):
 
         parsed = urlparse(server_url)
         self._host = parsed.hostname or "localhost"
-        self._port = parsed.port or 8000
+        self._port = parsed.port or 8081
 
     def initialize(self) -> None:
         """Initialize the manager and start server if needed."""

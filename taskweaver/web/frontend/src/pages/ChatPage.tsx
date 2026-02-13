@@ -1,70 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Trash2, Send, MessageSquare, Terminal, FileCode, Cpu, User, CheckCircle, XCircle, AlertTriangle, Image } from 'lucide-react'
+import { Plus, Trash2, Send, MessageSquare, Terminal, FileCode, Cpu, User, CheckCircle, XCircle, AlertTriangle, Image, Paperclip, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { chatApi } from '@/lib/api'
 import { chatStore } from '@/lib/chatStore'
+import { MarkdownContent, HighlightedCode, RetryImage } from '@/components/MarkdownContent'
 import type { ChatSession, ChatMessage } from '@/types'
-
-const IMAGE_URL_REGEX = /(https?:\/\/[^\s<>"]+?\.(?:png|jpg|jpeg|gif|svg|webp))(?:\s|$|[<>"'])/gi
-const ARTIFACT_URL_REGEX = /\/api\/v1\/sessions\/[^/]+\/artifacts\/[^\s<>"']+\.(?:png|jpg|jpeg|gif|svg|webp)/gi
-
-function renderContentWithImages(content: string): React.ReactNode {
-  const allMatches: { index: number; url: string; length: number }[] = []
-  
-  let match
-  const regex1 = new RegExp(IMAGE_URL_REGEX.source, 'gi')
-  while ((match = regex1.exec(content)) !== null) {
-    allMatches.push({ index: match.index, url: match[1] || match[0].trim(), length: match[0].length })
-  }
-  
-  const regex2 = new RegExp(ARTIFACT_URL_REGEX.source, 'gi')
-  while ((match = regex2.exec(content)) !== null) {
-    allMatches.push({ index: match.index, url: match[0], length: match[0].length })
-  }
-  
-  if (allMatches.length === 0) {
-    return content
-  }
-  
-  allMatches.sort((a, b) => a.index - b.index)
-  
-  const seen = new Set<number>()
-  const uniqueMatches = allMatches.filter(m => {
-    if (seen.has(m.index)) return false
-    seen.add(m.index)
-    return true
-  })
-  
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
-  
-  uniqueMatches.forEach((m, i) => {
-    if (m.index > lastIndex) {
-      parts.push(content.slice(lastIndex, m.index))
-    }
-    parts.push(
-      <img 
-        key={`img-${i}`}
-        src={m.url} 
-        alt="Generated image" 
-        className="max-w-full h-auto rounded border my-2"
-        onError={(e) => {
-          const target = e.target as HTMLImageElement
-          target.style.display = 'none'
-        }}
-      />
-    )
-    lastIndex = m.index + m.length
-  })
-  
-  if (lastIndex < content.length) {
-    parts.push(content.slice(lastIndex))
-  }
-  
-  return <>{parts}</>
-}
 
 const ChatMessageItem = ({ message }: { message: ChatMessage }) => {
   const isUser = message.role === 'User'
@@ -112,17 +54,21 @@ const ChatMessageItem = ({ message }: { message: ChatMessage }) => {
                   </div>
                   <div className="p-3 overflow-x-auto">
                     {att.type === 'code' ? (
-                      <pre className="font-mono text-xs whitespace-pre-wrap">{att.content}</pre>
+                      <HighlightedCode code={att.content} language="python" />
                     ) : att.type === 'execution_result' ? (
-                      <div className="font-mono text-xs whitespace-pre-wrap text-muted-foreground">
-                        {renderContentWithImages(att.content)}
-                      </div>
+                      <MarkdownContent content={att.content} className="font-mono text-xs text-muted-foreground" />
                     ) : att.type === 'artifact_paths' ? (
                       <div className="space-y-2">
-                        {renderContentWithImages(att.content)}
+                        {att.isStreaming ? (
+                          <span className="text-xs text-muted-foreground animate-pulse">Loading artifacts…</span>
+                        ) : (
+                          att.content.split('\n').filter(Boolean).map((url, i) => (
+                            <RetryImage key={i} src={url} alt={`Artifact ${i + 1}`} />
+                          ))
+                        )}
                       </div>
                     ) : (
-                      <div className="whitespace-pre-wrap">{att.content}</div>
+                      <MarkdownContent content={att.content} className="text-sm" />
                     )}
                   </div>
                 </div>
@@ -132,9 +78,7 @@ const ChatMessageItem = ({ message }: { message: ChatMessage }) => {
 
           {message.text && (
             <div className={`p-3 rounded-lg shadow-sm border ${bgColor} ${isUser ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
-              <div className="whitespace-pre-wrap break-words text-sm">
-                {renderContentWithImages(message.text)}
-              </div>
+              <MarkdownContent content={message.text} className="text-sm" />
             </div>
           )}
 
@@ -159,10 +103,15 @@ export function ChatPage() {
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('disconnected')
   const [confirmationRequest, setConfirmationRequest] = useState<{ id: string, code: string, roundId: string, postId: string } | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
-  
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [executionCwd, setExecutionCwd] = useState<string | null>(null)
+
   const wsRef = useRef<WebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const isReplayingHistoryRef = useRef<boolean>(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadResolveRef = useRef<(() => void) | null>(null)
+  const uploadCountRef = useRef<{ expected: number, received: number }>({ expected: 0, received: 0 })
 
   useEffect(() => {
     chatStore.setSessions(sessions)
@@ -204,6 +153,7 @@ export function ChatPage() {
     }
 
     setConnectionStatus('connecting')
+    setExecutionCwd(null)
 
     const wsUrl = chatApi.getWebSocketUrl(selectedSessionId)
     const ws = new WebSocket(wsUrl)
@@ -244,11 +194,24 @@ export function ChatPage() {
     if (msg.type === 'connected') {
       isReplayingHistoryRef.current = true
       setMessages(prev => ({ ...prev, [sessionId]: [] }))
+      if (msg.execution_cwd) {
+        setExecutionCwd(msg.execution_cwd)
+      }
       return
     }
     
     if (msg.type === 'history_complete') {
       isReplayingHistoryRef.current = false
+      return
+    }
+
+    if (msg.type === 'file_uploaded') {
+      console.log('[WS] File uploaded:', msg.filename)
+      uploadCountRef.current.received += 1
+      if (uploadCountRef.current.received >= uploadCountRef.current.expected && uploadResolveRef.current) {
+        uploadResolveRef.current()
+        uploadResolveRef.current = null
+      }
       return
     }
     
@@ -389,8 +352,29 @@ export function ChatPage() {
     }
   }
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim() || !wsRef.current || !selectedSessionId) return
+  const readFileAsBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        const base64 = result.split(',')[1] || ''
+        resolve(base64)
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleSendMessage = async () => {
+    const hasText = inputValue.trim().length > 0
+    const hasFiles = pendingFiles.length > 0
+    if ((!hasText && !hasFiles) || !wsRef.current || !selectedSessionId) return
+
+    const filesToSend = [...pendingFiles]
+    const messageText = inputValue
+    const displayText = hasFiles
+      ? (hasText ? messageText : '') + '\n📎 ' + filesToSend.map(f => f.name).join(', ')
+      : messageText
 
     const userMsgId = `user-${Date.now()}`
     setMessages(prev => ({
@@ -400,7 +384,7 @@ export function ChatPage() {
         {
           id: userMsgId,
           role: 'User',
-          text: inputValue,
+          text: displayText.trim(),
           attachments: [],
           isStreaming: false,
           timestamp: Date.now()
@@ -408,12 +392,32 @@ export function ChatPage() {
       ]
     }))
 
-    wsRef.current.send(JSON.stringify({
-      type: 'send_message',
-      message: inputValue
-    }))
-
     setInputValue('')
+    setPendingFiles([])
+
+    if (filesToSend.length > 0) {
+      uploadCountRef.current = { expected: filesToSend.length, received: 0 }
+
+      const uploadsDone = new Promise<void>((resolve) => {
+        uploadResolveRef.current = resolve
+      })
+
+      for (const file of filesToSend) {
+        const base64 = await readFileAsBase64(file)
+        wsRef.current!.send(JSON.stringify({
+          type: 'upload_file',
+          filename: file.name,
+          content: base64,
+        }))
+      }
+
+      await uploadsDone
+    }
+
+    wsRef.current!.send(JSON.stringify({
+      type: 'send_message',
+      message: hasText ? messageText : `I've uploaded: ${filesToSend.map(f => f.name).join(', ')}`,
+    }))
   }
 
   const handleConfirm = (approved: boolean) => {
@@ -425,6 +429,21 @@ export function ChatPage() {
     }))
     
     setConfirmationRequest(null)
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files
+    if (selected && selected.length > 0) {
+      const newFiles = Array.from(selected)
+      setPendingFiles(prev => [...prev, ...newFiles])
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleRemoveFile = (index: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -494,10 +513,15 @@ export function ChatPage() {
             <div className="border-b p-4 flex items-center justify-between bg-card">
                <div className="flex items-center gap-2">
                  <div className={`h-2 w-2 rounded-full ${
-                   connectionStatus === 'connected' ? 'bg-green-500' : 
+                   connectionStatus === 'connected' ? 'bg-green-500' :
                    connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
                  }`} />
                  <span className="font-mono text-sm">{selectedSessionId}</span>
+                 {executionCwd && (
+                   <span className="text-xs text-muted-foreground ml-2 truncate max-w-[400px]" title={executionCwd}>
+                     CWD: {executionCwd}
+                   </span>
+                 )}
                </div>
             </div>
 
@@ -548,7 +572,42 @@ export function ChatPage() {
             )}
 
             <div className="p-4 border-t bg-card">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              {pendingFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {pendingFiles.map((file, index) => (
+                    <div
+                      key={`${file.name}-${index}`}
+                      className="flex items-center gap-1.5 bg-muted text-sm px-2.5 py-1 rounded-full border"
+                    >
+                      <Paperclip className="h-3 w-3 text-muted-foreground" />
+                      <span className="max-w-[150px] truncate">{file.name}</span>
+                      <button
+                        onClick={() => handleRemoveFile(index)}
+                        className="ml-0.5 hover:bg-accent rounded-full p-0.5 transition-colors"
+                      >
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={connectionStatus !== 'connected' || !!confirmationRequest || isProcessing}
+                  className="flex-shrink-0"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
                 <Input 
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
@@ -559,7 +618,7 @@ export function ChatPage() {
                 />
                 <Button 
                   onClick={handleSendMessage} 
-                  disabled={!inputValue.trim() || connectionStatus !== 'connected' || !!confirmationRequest || isProcessing}
+                  disabled={(!inputValue.trim() && pendingFiles.length === 0) || connectionStatus !== 'connected' || !!confirmationRequest || isProcessing}
                 >
                   <Send className="h-4 w-4" />
                 </Button>

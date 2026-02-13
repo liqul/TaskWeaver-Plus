@@ -85,13 +85,14 @@ class ServerSessionManager:
     def create_session(
         self,
         session_id: str,
-        cwd: Optional[str] = None,
     ) -> ServerSession:
         """Create a new execution session.
 
+        The CES server always uses its own working directory for sessions:
+        {work_dir}/sessions/{session_id}/cwd/
+
         Args:
             session_id: Unique session identifier.
-            cwd: Optional working directory for code execution.
 
         Returns:
             The created ServerSession.
@@ -107,9 +108,9 @@ class ServerSessionManager:
             session_dir = os.path.join(self.work_dir, "sessions", session_id)
             os.makedirs(session_dir, exist_ok=True)
 
-            # Determine cwd
-            if cwd is None:
-                cwd = os.path.join(session_dir, "cwd")
+            # Always use the CES server's own cwd (ignore client-provided cwd).
+            # The client will read back the actual cwd from the response.
+            cwd = os.path.join(session_dir, "cwd")
             os.makedirs(cwd, exist_ok=True)
 
             # Create Environment for this session (EnvMode.Local only on server)
@@ -311,10 +312,8 @@ class ServerSessionManager:
                     with open(file_path, "w", encoding="utf-8") as f:
                         f.write(artifact.file_content)
 
-                # Update artifact with the file_name so download URL can be constructed
                 artifact.file_name = file_name
                 artifact.original_name = file_name
-                logger.debug(f"Saved inline artifact to {file_path}")
 
             except Exception as e:
                 logger.warning(f"Failed to save inline artifact {artifact.name}: {e}")
@@ -354,12 +353,10 @@ class ServerSessionManager:
         if session is None:
             return None
 
-        # Artifacts are typically in the cwd directory
         artifact_path = os.path.join(session.cwd, filename)
         if os.path.isfile(artifact_path):
             return artifact_path
 
-        # Also check session_dir/cwd
         artifact_path = os.path.join(session.session_dir, "cwd", filename)
         if os.path.isfile(artifact_path):
             return artifact_path

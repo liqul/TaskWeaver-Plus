@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { Terminal, Boxes, MessageSquare } from 'lucide-react'
+import { Boxes, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function Layout() {
@@ -25,18 +25,6 @@ export function Layout() {
             >
               <MessageSquare className="h-4 w-4" />
               Chat
-            </NavLink>
-            <NavLink
-              to="/sessions"
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-2 transition-colors hover:text-foreground/80',
-                  isActive ? 'text-foreground' : 'text-foreground/60'
-                )
-              }
-            >
-              <Terminal className="h-4 w-4" />
-              Sessions
             </NavLink>
           </nav>
         </div>

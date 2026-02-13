@@ -49,6 +49,7 @@ class ExecutionArtifact:
             file_name=d["file_name"],
             file_content=d["file_content"],
             preview=d["preview"],
+            download_url=d.get("download_url", ""),
         )
 
     def to_dict(self) -> Dict[str, Any]:

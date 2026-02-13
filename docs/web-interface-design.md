@@ -764,7 +764,7 @@ def create_app(...):
 
 ```bash
 # Terminal 1: Start CES server
-python -m taskweaver -p ./project server --port 8000
+python -m taskweaver -p ./project server --port 8081
 
 # Terminal 2: Start Vite dev server (with proxy)
 cd taskweaver/web/frontend
@@ -782,7 +782,7 @@ npm run build
 cp -r dist/* ../static/
 
 # Start server (serves both API and frontend)
-python -m taskweaver -p ./project server --port 8000
+python -m taskweaver -p ./project server --port 8081
 ```
 
 ### 12.3 Vite Config for Development
@@ -794,7 +794,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8081',
         changeOrigin: true,
       },
     },

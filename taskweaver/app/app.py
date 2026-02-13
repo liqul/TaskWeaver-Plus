@@ -12,7 +12,7 @@ from taskweaver.role.role import RoleModule
 from taskweaver.session.session import Session
 
 
-def _cleanup_existing_servers(port: int = 8000) -> Optional[int]:
+def _cleanup_existing_servers(port: int = 8081) -> Optional[int]:
     """Check for and kill any existing server processes on the specified port.
 
     This is called at TaskWeaver startup to ensure a clean state.

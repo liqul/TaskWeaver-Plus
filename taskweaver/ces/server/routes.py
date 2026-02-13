@@ -125,6 +125,10 @@ async def list_sessions(
                 cwd=session.cwd,
             ),
         )
+    logger.info(
+        f"list_sessions returning {len(sessions)} sessions: "
+        f"{[s.session_id for s in sessions]}",
+    )
     return SessionListResponse(sessions=sessions, total_count=len(sessions))
 
 
@@ -152,7 +156,10 @@ async def create_session(
     try:
         session = session_manager.create_session(
             session_id=session_id,
-            cwd=request.cwd,
+        )
+        logger.info(
+            f"Created CES session {session.session_id}, "
+            f"total sessions: {len(session_manager._sessions)}",
         )
         return CreateSessionResponse(
             session_id=session.session_id,
@@ -303,8 +310,7 @@ async def execute_code(
             exec_id=request.exec_id,
             code=request.code,
         )
-        base_url = str(http_request.base_url).rstrip("/")
-        return execution_result_to_response(result, session_id, base_url)
+        return execution_result_to_response(result, session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     except Exception as e:
@@ -355,7 +361,7 @@ async def _execute_streaming(
             )
             # Set download URL for artifacts with file_name
             if art.file_name:
-                artifact_model.download_url = f"{base_url}/api/v1/sessions/{session_id}/artifacts/{art.file_name}"
+                artifact_model.download_url = f"/api/v1/sessions/{session_id}/artifacts/{art.file_name}"
             artifacts.append(artifact_model.model_dump())
 
         # Send result event
@@ -522,25 +528,22 @@ async def download_artifact(
     """Download an artifact file from a session."""
     artifact_path: Optional[str] = None
 
-    if session_manager.session_exists(session_id):
-        artifact_path = session_manager.get_artifact_path(session_id, filename)
-    else:
-        # Fallback: check chat sessions for artifacts
-        try:
-            from taskweaver.chat.web.routes import chat_manager
+    ces_session_exists = session_manager.session_exists(session_id)
 
-            chat_session = chat_manager.get_session(session_id)
-            if chat_session:
-                potential_path = os.path.join(chat_session.tw_session.execution_cwd, filename)
-                real_potential_path = os.path.realpath(potential_path)
-                real_cwd = os.path.realpath(chat_session.tw_session.execution_cwd)
-                # Security: ensure path doesn't escape execution directory
-                if real_potential_path.startswith(real_cwd) and os.path.isfile(potential_path):
-                    artifact_path = potential_path
-        except ImportError:
-            pass
+    if ces_session_exists:
+        artifact_path = session_manager.get_artifact_path(session_id, filename)
+
+    # Final fallback: check disk directly (session may have been stopped but files remain)
+    if artifact_path is None:
+        disk_path = os.path.join(session_manager.work_dir, "sessions", session_id, "cwd", filename)
+        real_disk_path = os.path.realpath(disk_path)
+        real_sessions_dir = os.path.realpath(os.path.join(session_manager.work_dir, "sessions"))
+        if real_disk_path.startswith(real_sessions_dir) and os.path.isfile(disk_path):
+            artifact_path = disk_path
+            logger.debug(f"download_artifact: resolved via disk fallback: {disk_path}")
 
     if artifact_path is None:
+        logger.warning(f"download_artifact: 404 for session_id={session_id}, filename={filename}")
         raise HTTPException(status_code=404, detail=f"Artifact {filename} not found")
 
     # Determine mime type

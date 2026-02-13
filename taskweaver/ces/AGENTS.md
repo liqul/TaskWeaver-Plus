@@ -51,7 +51,7 @@ ces/
 │                                                └─────────┬─────────┘        │
 └──────────────────────────────────────────────────────────┼──────────────────┘
                                                            │
-                                                           │ HTTP (localhost:8000 or remote)
+                                                           │ HTTP (localhost:8081 or remote)
                                                            ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          EXECUTION SERVER                                   │
@@ -129,32 +129,24 @@ class ExecutionResult:
 | Class | File | Purpose |
 |-------|------|---------|
 | `ExecutionClient` | `client/execution_client.py` | HTTP client implementing Client ABC |
-| `ServerLauncher` | `client/server_launcher.py` | Auto-start server as subprocess/container |
+| `ServerLauncher` | `client/server_launcher.py` | Start server as subprocess/container |
 | `ExecutionServiceProvider` | `manager/execution_service.py` | Manager implementation using HTTP client |
 | `ExecutionServiceClient` | `manager/execution_service.py` | Client wrapper for Provider |
 
 ## Deployment Modes
 
-### 1. Local Process (Default)
+### 1. Local Process
 ```
-TaskWeaver ──HTTP──▶ Server (subprocess) ──▶ Jupyter Kernel
-                     localhost:8000
-```
-
-Server auto-starts when needed. Full filesystem access.
-
-### 2. Local Container
-```
-TaskWeaver ──HTTP──▶ Docker Container ──▶ Jupyter Kernel
-                     localhost:8000
+TaskWeaver ──HTTP──▶ Server (manually started) ──▶ Jupyter Kernel
+                     localhost:8081
 ```
 
-Isolated filesystem. Volumes mapped for workspace.
+Start with `python -m taskweaver.ces.server --port 8081`. Full filesystem access.
 
-### 3. Remote Server
+### 2. Remote Server
 ```
 TaskWeaver ──HTTP──▶ Remote Machine ──▶ Jupyter Kernel
-                     remote:8000
+                     remote:8081
 ```
 
 Connect to pre-started server. API key required.
@@ -179,19 +171,21 @@ Connect to pre-started server. API key required.
 
 ### CLI Integration
 
-The Code Execution Service can be started as a standalone server via the TaskWeaver CLI. This is the recommended way to run CES for remote or containerized deployments. The implementation resides in `taskweaver/cli/server.py`.
+The CES server must be started separately before using the Chat/Web server or CLI chat.
 
 ```bash
-# Start CES server via CLI
-python -m taskweaver -p ./project server \
+# Start CES server
+python -m taskweaver.ces.server \
     --host 0.0.0.0 \
-    --port 8000 \
-    --api-key "secret" \
-    --log-level info \
-    --reload
-```
+    --port 8081 \
+    --api-key "secret"
 
-The server command wraps `taskweaver.ces.server.app:app` and runs it using `uvicorn`. Note that when using `--server-url` with the `chat` command, `server_auto_start` is automatically disabled to connect to the existing instance.
+# Then start the Chat/Web server (separate terminal)
+taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
+
+# Or use CLI chat
+taskweaver -p ./project/ chat --server-url http://localhost:8081
+```
 
 ### Starting the Server Manually
 
@@ -202,7 +196,7 @@ python -m taskweaver.ces.server
 # With options
 python -m taskweaver.ces.server \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port 8081 \
     --work-dir /var/taskweaver \
     --api-key "secret"
 ```
@@ -212,21 +206,14 @@ python -m taskweaver.ces.server \
 ```python
 from taskweaver.ces import code_execution_service_factory
 
-# Default: local server with auto-start
+# Connect to a running CES server
 manager = code_execution_service_factory(env_dir="/tmp/work")
 
-# Containerized server
+# Connect to a remote server with API key
 manager = code_execution_service_factory(
     env_dir="/tmp/work",
-    server_container=True,
-)
-
-# Remote server
-manager = code_execution_service_factory(
-    env_dir="/tmp/work",
-    server_url="http://remote:8000",
+    server_url="http://remote:8081",
     server_api_key="secret",
-    server_auto_start=False,
 )
 ```
 
@@ -237,7 +224,7 @@ from taskweaver.ces.client import ExecutionClient
 
 with ExecutionClient(
     session_id="my-session",
-    server_url="http://localhost:8000",
+    server_url="http://localhost:8081",
 ) as client:
     client.start()
     client.load_plugin("my_plugin", plugin_code, {"key": "value"})
@@ -329,7 +316,7 @@ class UploadFileResponse(BaseModel):
 ```python
 from taskweaver.ces.client import ExecutionClient
 
-with ExecutionClient(session_id="my-session", server_url="http://localhost:8000") as client:
+with ExecutionClient(session_id="my-session", server_url="http://localhost:8081") as client:
     client.start()
     
     # Upload a file
@@ -439,12 +426,9 @@ Configuration options (in `taskweaver_config.json`):
 
 ```json
 {
-  "execution.server.url": "http://localhost:8000",
-  "execution.server.api_key": "",
-  "execution.server.auto_start": true,
-  "execution.server.container": false,
-  "execution.server.container_image": "taskweavercontainers/taskweaver-executor:latest",
-  "execution.server.timeout": 300
+  "execution_service.server.url": "http://localhost:8081",
+  "execution_service.server.api_key": "",
+  "execution_service.server.timeout": 300
 }
 ```
 
@@ -452,7 +436,7 @@ Configuration options (in `taskweaver_config.json`):
 
 When `server_container=true`:
 - Image: `taskweavercontainers/taskweaver-executor:latest`
-- Port mapping: `8000/tcp` → host port
+- Port mapping: `8081/tcp` → host port
 - Volume: `{env_dir}` → `/app/workspace`
 - Server runs inside container with local kernel
 

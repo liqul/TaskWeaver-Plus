@@ -37,7 +37,7 @@ This specification describes a server-first architecture for TaskWeaver's code e
 │                                                               │                 │
 └───────────────────────────────────┼─────────────────────────────────────────────┘
                                     │
-                                    │ HTTP (localhost:8000 or remote)
+                                    │ HTTP (localhost:8081 or remote)
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                            EXECUTION SERVER                                     │
@@ -90,7 +90,7 @@ This specification describes a server-first architecture for TaskWeaver's code e
 │  │  │ TaskWeaver      │    HTTP      │ Execution Server (subprocess)  │   │   │
 │  │  │ Main Process    │◄────────────▶│                                 │   │   │
 │  │  │                 │  localhost   │ - Full filesystem access        │   │   │
-│  │  │ (auto-starts    │   :8000      │ - Local Python packages         │   │   │
+│  │  │ (auto-starts    │   :8081      │ - Local Python packages         │   │   │
 │  │  │  server)        │              │ - User's environment vars       │   │   │
 │  │  └─────────────────┘              └─────────────────────────────────┘   │   │
 │  │                                                                         │   │
@@ -108,7 +108,7 @@ This specification describes a server-first architecture for TaskWeaver's code e
 │  │  │ TaskWeaver      │    HTTP      │ Docker Container                │   │   │
 │  │  │ Main Process    │◄────────────▶│ ┌─────────────────────────────┐ │   │   │
 │  │  │                 │  localhost   │ │ Execution Server            │ │   │   │
-│  │  │ (auto-starts    │   :8000      │ │                             │ │   │   │
+│  │  │ (auto-starts    │   :8081      │ │                             │ │   │   │
 │  │  │  container)     │              │ │ - Isolated filesystem       │ │   │   │
 │  │  └─────────────────┘              │ │ - Controlled packages       │ │   │   │
 │  │                                   │ └─────────────────────────────┘ │   │   │
@@ -136,7 +136,7 @@ This specification describes a server-first architecture for TaskWeaver's code e
 │  │                              │    │  └────────────────────────────────┘  │  │
 │  └──────────────────────────────┘    └──────────────────────────────────────┘  │
 │                                                                                 │
-│  Config: auto_start=false, url="http://remote:8000", api_key="xxx"             │
+│  Config: auto_start=false, url="http://remote:8081", api_key="xxx"             │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -202,7 +202,7 @@ class ExecutionConfig(ModuleConfig):
         self._set_name("execution")
         
         # Server configuration
-        self.server_url = self._get_str("server.url", "http://localhost:8000")
+        self.server_url = self._get_str("server.url", "http://localhost:8081")
         self.server_api_key = self._get_str("server.api_key", "")
         self.server_auto_start = self._get_bool("server.auto_start", True)
         self.server_container = self._get_bool("server.container", False)
@@ -211,7 +211,7 @@ class ExecutionConfig(ModuleConfig):
             "taskweavercontainers/taskweaver-executor:latest"
         )
         self.server_host = self._get_str("server.host", "localhost")
-        self.server_port = self._get_int("server.port", 8000)
+        self.server_port = self._get_int("server.port", 8081)
         self.server_timeout = self._get_int("server.timeout", 300)
 ```
 
@@ -230,7 +230,7 @@ class ExecutionConfig(ModuleConfig):
 
 // Example 3: Remote server
 {
-  "execution.server.url": "http://192.168.1.100:8000",
+  "execution.server.url": "http://192.168.1.100:8081",
   "execution.server.api_key": "your-secret-key",
   "execution.server.auto_start": false
 }
@@ -927,7 +927,7 @@ pip install fastapi uvicorn httpx
 # Start server
 python -m taskweaver.ces.server \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port 8081 \
     --api-key "your-secret-key" \
     --work-dir /var/taskweaver/sessions
 ```
@@ -957,10 +957,10 @@ RUN mkdir -p /app/workspace
 
 # Environment variables
 ENV TASKWEAVER_SERVER_HOST=0.0.0.0
-ENV TASKWEAVER_SERVER_PORT=8000
+ENV TASKWEAVER_SERVER_PORT=8081
 ENV TASKWEAVER_SERVER_WORK_DIR=/app/workspace
 
-EXPOSE 8000
+EXPOSE 8081
 
 # Run server
 CMD ["python", "-m", "taskweaver.ces.server"]
@@ -978,7 +978,7 @@ services:
       context: .
       dockerfile: Dockerfile.executor
     ports:
-      - "8000:8000"
+      - "8081:8081"
     volumes:
       - ./workspace:/app/workspace
     environment:

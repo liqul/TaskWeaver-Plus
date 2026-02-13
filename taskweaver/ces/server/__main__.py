@@ -47,7 +47,7 @@ def main() -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.getenv("TASKWEAVER_SERVER_PORT", "8000")),
+        default=int(os.getenv("TASKWEAVER_SERVER_PORT", "8081")),
         help="Port to bind to",
     )
 
@@ -86,6 +86,12 @@ def main() -> None:
         help="Log level",
     )
 
+    parser.add_argument(
+        "--no-frontend",
+        action="store_true",
+        help="Disable serving the Sessions UI frontend",
+    )
+
     args = parser.parse_args()
 
     # Configure logging
@@ -101,16 +107,21 @@ def main() -> None:
     if args.api_key:
         os.environ["TASKWEAVER_SERVER_API_KEY"] = args.api_key
 
+    if args.no_frontend:
+        os.environ["TASKWEAVER_CES_NO_FRONTEND"] = "1"
+
     print()
     print("=" * 60)
     print("  TaskWeaver Code Execution Server")
     print("=" * 60)
-    print(f"  Host:      {args.host}")
-    print(f"  Port:      {args.port}")
-    print(f"  URL:       http://{args.host}:{args.port}")
-    print(f"  Health:    http://{args.host}:{args.port}/api/v1/health")
-    print(f"  Work Dir:  {args.work_dir}")
-    print(f"  API Key:   {'configured' if args.api_key else 'not required (localhost)'}")
+    print(f"  Host:        {args.host}")
+    print(f"  Port:        {args.port}")
+    print(f"  URL:         http://{args.host}:{args.port}")
+    print(f"  Health:      http://{args.host}:{args.port}/api/v1/health")
+    if not args.no_frontend:
+        print(f"  Sessions UI: http://{args.host}:{args.port}/")
+    print(f"  Work Dir:    {args.work_dir}")
+    print(f"  API Key:     {'configured' if args.api_key else 'not required (localhost)'}")
     print("=" * 60)
     print()
 
@@ -124,6 +135,23 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # Detect WebSocket library explicitly to avoid uvicorn auto-detection failures
+    ws_impl: str = "auto"
+    try:
+        import websockets  # noqa: F401
+
+        ws_impl = "websockets"
+    except ImportError:
+        try:
+            import wsproto  # noqa: F401
+
+            ws_impl = "wsproto"
+        except ImportError:
+            logger.warning(
+                "No WebSocket library found. WebSocket endpoints will not work. "
+                "Install one with: pip install websockets",
+            )
+
     # Run the server
     uvicorn.run(
         "taskweaver.ces.server.app:app",
@@ -131,6 +159,7 @@ def main() -> None:
         port=args.port,
         reload=args.reload,
         log_level=args.log_level,
+        ws=ws_impl,
     )
 
 
