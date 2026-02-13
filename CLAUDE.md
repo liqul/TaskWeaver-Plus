@@ -18,15 +18,14 @@ pip install -e .
 ```
 
 ### Running TaskWeaver
-TaskWeaver uses a two-server architecture. Always start the CES server first.
+TaskWeaver uses a two-server architecture. Each server serves its own frontend. Always start the CES server first.
 
 ```bash
-# Terminal 1: Start the CES (Code Execution Service) server
+# Terminal 1: Start the CES server (Sessions UI at http://localhost:8081/)
 python -m taskweaver.ces.server --port 8081
 
-# Terminal 2a: Web UI
+# Terminal 2a: Chat/Web server (Chat UI at http://localhost:8082/chat)
 taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
-# Open http://localhost:8082/chat
 
 # Terminal 2b: CLI chat (alternative to Web UI)
 taskweaver -p ./project/ chat --server-url http://localhost:8081
@@ -197,13 +196,18 @@ Key endpoints:
 - `POST /api/v1/sessions/{id}/files` - Upload file
 
 ### Web UI Architecture
-The Web UI runs as a separate Chat/Web server (port 8082) that proxies CES API requests:
+Each server serves its own dedicated frontend:
 
-- **Backend**: `taskweaver/chat/web/app.py` (FastAPI app), `routes.py` (WebSocket + REST), `ces_proxy.py` (CES reverse proxy)
-- **Frontend**: `taskweaver/web/frontend/` (React + Vite + TypeScript)
-- **Two-server**: Chat server handles `/api/v1/chat/*` routes directly, proxies all other `/api/v1/*` routes to the CES server
+- **CES server (8081)** → Sessions UI at `http://localhost:8081/`
+  - Backend: `taskweaver/ces/server/app.py`
+  - Frontend: `taskweaver/ces/web/frontend/` (React + Vite + TypeScript)
+  - Manages Jupyter kernel sessions and direct code execution
+- **Chat server (8082)** → Chat UI at `http://localhost:8082/chat`
+  - Backend: `taskweaver/chat/web/app.py` (FastAPI app), `routes.py` (WebSocket + REST)
+  - Frontend: `taskweaver/web/frontend/` (React + Vite + TypeScript)
+  - Handles chat WebSocket connections and agent logic
 
-WebSocket protocol handles bidirectional streaming:
+WebSocket protocol handles bidirectional streaming (Chat server):
 - Client sends: `send_message`, `confirm`, `upload_file`
 - Server sends: `message_update`, `attachment_start`, `confirm_request`, etc.
 
@@ -400,17 +404,22 @@ When execution server runs remotely or in container, use the file upload API:
 4. Uploaded files are then accessible in code execution
 
 ### Frontend Development
-The React frontend is in `taskweaver/web/frontend/`:
-- Built with Vite + TypeScript + Tailwind CSS
-- Uses shadcn/ui component library
-- Build output served by FastAPI at `/chat` route
+There are two separate React frontends:
+
+**Chat frontend** (`taskweaver/web/frontend/`):
+- Served by the Chat server at `/chat`
+- Built with Vite + TypeScript + Tailwind CSS + shadcn/ui
 - WebSocket connection handles real-time streaming
 
-To rebuild frontend:
+**CES Sessions frontend** (`taskweaver/ces/web/frontend/`):
+- Served by the CES server at `/`
+- Built with Vite + TypeScript + Tailwind CSS + shadcn/ui
+- Manages Jupyter kernel sessions and direct code execution
+
+To rebuild frontends:
 ```bash
-cd taskweaver/web/frontend
-npm install
-npm run build
+cd taskweaver/ces/web/frontend && npm install && npm run build && cd ../../../..
+cd taskweaver/web/frontend && npm install && npm run build && cd ../../..
 ```
 
 ### Flake8 Ignores

@@ -10,9 +10,11 @@
 
 </div>
 
+> **Note:** The [original Microsoft TaskWeaver repository](https://github.com/microsoft/TaskWeaver) has been **archived**. This fork is a personal project maintained for fun. It keeps only the core logic and enhances it in several areas, including a new two-server architecture, a custom React web UI, background memory compaction, plugin output streaming, and more.
+
 TaskWeaver+ is a **code-first** agent framework for seamlessly planning and executing data analytics tasks.
 This framework interprets user requests through code snippets and coordinates plugins (functions) to execute
-data analytics tasks in a stateful manner. It is forked from [Microsoft TaskWeaver](https://github.com/microsoft/TaskWeaver) and independently maintained.
+data analytics tasks in a stateful manner.
 
 TaskWeaver preserves both the **chat history** and the **code execution history**, including in-memory data.
 This enhances the expressiveness of the agent framework, making it ideal for processing complex data
@@ -70,16 +72,15 @@ TaskWeaver uses a **two-server architecture**: a CES (Code Execution Service) se
 
 **Web UI (recommended):**
 ```bash
-# Build the frontend (first time only)
+# Build the frontends (first time only)
+cd taskweaver/ces/web/frontend && npm install && npm run build && cd ../../../..
 cd taskweaver/web/frontend && npm install && npm run build && cd ../../..
 
-# Terminal 1: Start the CES server
+# Terminal 1: Start the CES server (Sessions UI at http://localhost:8081/)
 python -m taskweaver.ces.server --port 8081
 
-# Terminal 2: Start the Chat/Web server
+# Terminal 2: Start the Chat/Web server (Chat UI at http://localhost:8082/chat)
 taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081
-
-# Open http://localhost:8082/chat in your browser
 ```
 
 **CLI chat:**
@@ -111,11 +112,11 @@ response = session.send_message("Your request here")
 
 TaskWeaver uses two independent servers that can run on the same machine or separately:
 
-1. **CES (Code Execution Service) server** - Manages Jupyter kernels and executes code. Each session gets its own working directory under `{work_dir}/sessions/{session_id}/cwd/`. Start with `python -m taskweaver.ces.server --port 8081`.
+1. **CES (Code Execution Service) server** - Manages Jupyter kernels and executes code. Each session gets its own working directory under `{work_dir}/sessions/{session_id}/cwd/`. Serves its own **Sessions UI** at `http://localhost:8081/`. Start with `python -m taskweaver.ces.server --port 8081`.
 
-2. **Chat/Web server** - Serves the frontend UI, handles WebSocket chat connections, and runs the agent logic (Planner, CodeInterpreter). Communicates with the CES server over HTTP. Proxies CES API requests and artifact downloads transparently. Start with `taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081`.
+2. **Chat/Web server** - Serves the **Chat UI** at `http://localhost:8082/chat`, handles WebSocket chat connections, and runs the agent logic (Planner, CodeInterpreter). Communicates with the CES server over HTTP. Start with `taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081`.
 
-The CES server exposes a REST API (`/api/v1/sessions`, `/execute`, `/plugins`, `/files`, `/artifacts`) and supports SSE streaming for real-time execution output. File uploads use base64 encoding over HTTP, so the servers can run on different machines. The Chat/Web server checks CES connectivity at startup and will refuse to start if the CES server is not reachable.
+Each server serves its own dedicated frontend. The CES server exposes a REST API (`/api/v1/sessions`, `/execute`, `/plugins`, `/files`, `/artifacts`) and supports SSE streaming for real-time execution output. File uploads use base64 encoding over HTTP, so the servers can run on different machines. The Chat/Web server checks CES connectivity at startup and will refuse to start if the CES server is not reachable.
 
 ### Code Execution Confirmation
 
@@ -128,9 +129,26 @@ The Chainlit-based UI has been replaced with a custom **React + TypeScript** fro
 - Real-time streaming of agent steps (planning, code generation, execution results) via WebSocket
 - Code execution confirmation dialog in the browser
 - Session management (create, list, delete, reconnect with full history replay)
-- File upload and artifact download with automatic CES proxy
-- CES session admin panel
+- File upload and artifact download
 - Execution working directory display
+
+**Chat UI** (`http://localhost:8082/chat`) — planning, code generation, and execution results with inline images:
+
+<p align="center">
+  <img src="./.asset/taskweaver_web_1.png" width="80%" alt="Chat UI - Planner reasoning and task decomposition" />
+</p>
+<p align="center">
+  <img src="./.asset/taskweaver_web_2.png" width="80%" alt="Chat UI - Code execution with histogram output" />
+</p>
+<p align="center">
+  <img src="./.asset/taskweaver_web_3.png" width="80%" alt="Chat UI - Final response with inline plot" />
+</p>
+
+**Sessions UI** (`http://localhost:8081/`) — manage Jupyter kernel sessions and execute code directly:
+
+<p align="center">
+  <img src="./.asset/taskweaver_session_1.png" width="80%" alt="Sessions UI - Code execution sessions" />
+</p>
 
 Start the CES server with `python -m taskweaver.ces.server --port 8081`, then start the Chat/Web server with `taskweaver -p ./project/ server --port 8082 --ces-url http://localhost:8081` and open `http://localhost:8082/chat` in your browser.
 

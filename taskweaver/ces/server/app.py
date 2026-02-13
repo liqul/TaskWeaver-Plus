@@ -46,6 +46,7 @@ def create_app(
     work_dir: Optional[str] = None,
     env_id: Optional[str] = None,
     cors_origins: Optional[list[str]] = None,
+    serve_frontend: bool = True,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -55,6 +56,7 @@ def create_app(
         work_dir: Working directory for session data.
         env_id: Environment identifier.
         cors_origins: List of allowed CORS origins. Defaults to allowing all.
+        serve_frontend: Whether to serve the CES frontend static files.
 
     Returns:
         Configured FastAPI application.
@@ -86,8 +88,16 @@ def create_app(
     # Include API routes
     app.include_router(router)
 
+    if serve_frontend:
+        try:
+            from taskweaver.ces.web import mount_frontend
+
+            mount_frontend(app)
+        except ImportError:
+            logger.debug("CES frontend not available")
+
     return app
 
 
 # Default app instance for uvicorn
-app = create_app()
+app = create_app(serve_frontend=not os.getenv("TASKWEAVER_CES_NO_FRONTEND"))

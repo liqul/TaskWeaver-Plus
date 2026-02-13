@@ -86,6 +86,12 @@ def main() -> None:
         help="Log level",
     )
 
+    parser.add_argument(
+        "--no-frontend",
+        action="store_true",
+        help="Disable serving the Sessions UI frontend",
+    )
+
     args = parser.parse_args()
 
     # Configure logging
@@ -101,16 +107,21 @@ def main() -> None:
     if args.api_key:
         os.environ["TASKWEAVER_SERVER_API_KEY"] = args.api_key
 
+    if args.no_frontend:
+        os.environ["TASKWEAVER_CES_NO_FRONTEND"] = "1"
+
     print()
     print("=" * 60)
     print("  TaskWeaver Code Execution Server")
     print("=" * 60)
-    print(f"  Host:      {args.host}")
-    print(f"  Port:      {args.port}")
-    print(f"  URL:       http://{args.host}:{args.port}")
-    print(f"  Health:    http://{args.host}:{args.port}/api/v1/health")
-    print(f"  Work Dir:  {args.work_dir}")
-    print(f"  API Key:   {'configured' if args.api_key else 'not required (localhost)'}")
+    print(f"  Host:        {args.host}")
+    print(f"  Port:        {args.port}")
+    print(f"  URL:         http://{args.host}:{args.port}")
+    print(f"  Health:      http://{args.host}:{args.port}/api/v1/health")
+    if not args.no_frontend:
+        print(f"  Sessions UI: http://{args.host}:{args.port}/")
+    print(f"  Work Dir:    {args.work_dir}")
+    print(f"  API Key:     {'configured' if args.api_key else 'not required (localhost)'}")
     print("=" * 60)
     print()
 

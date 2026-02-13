@@ -23,8 +23,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from taskweaver.chat.web import chat_router
-from taskweaver.chat.web.ces_proxy import router as ces_proxy_router
-from taskweaver.chat.web.ces_proxy import set_ces_url
 from taskweaver.chat.web.routes import chat_manager
 
 logger = logging.getLogger(__name__)
@@ -42,7 +40,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         chat_manager.set_app_dir(app_dir)
     if ces_url:
         chat_manager.set_server_url(ces_url)
-        set_ces_url(ces_url)
 
     logger.info(f"Chat server initialized with app_dir={app_dir}, ces_url={ces_url}")
 
@@ -91,7 +88,6 @@ def create_app(
     )
 
     app.include_router(chat_router)
-    app.include_router(ces_proxy_router)
 
     if serve_frontend:
         try:

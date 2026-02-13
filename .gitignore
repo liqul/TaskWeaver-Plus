@@ -190,6 +190,8 @@ taskweaver/cli/taskweaver-project.zip
 # Frontend build artifacts
 taskweaver/web/static/
 taskweaver/web/frontend/node_modules/
+taskweaver/ces/web/static/
+taskweaver/ces/web/frontend/node_modules/
 
 # General
 .DS_Store

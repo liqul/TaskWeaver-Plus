@@ -24,7 +24,10 @@
       "Bash(npx tsc:*)",
       "Bash(npm install:*)",
       "Bash(npm run build:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(del \"C:\\\\Users\\\\liqli\\\\code\\\\TaskWeaverFork\\\\taskweaver\\\\web\\\\frontend\\\\src\\\\pages\\\\SessionsPage.tsx\")",
+      "Bash(del \"C:\\\\Users\\\\liqli\\\\code\\\\TaskWeaverFork\\\\taskweaver\\\\web\\\\frontend\\\\src\\\\types\\\\session.ts\")",
+      "Bash(del \"C:\\\\Users\\\\liqli\\\\code\\\\TaskWeaverFork\\\\taskweaver\\\\web\\\\frontend\\\\src\\\\types\\\\api.ts\")"
     ]
   }
 }

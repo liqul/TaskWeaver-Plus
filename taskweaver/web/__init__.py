@@ -48,8 +48,6 @@ def mount_frontend(app: FastAPI, static_dir: Optional[Path] = None) -> bool:
 
     @app.get("/chat")
     @app.get("/chat/{path:path}")
-    @app.get("/sessions")
-    @app.get("/sessions/{path:path}")
     async def spa_fallback(request: Request):
         return FileResponse(str(index_html))
 
